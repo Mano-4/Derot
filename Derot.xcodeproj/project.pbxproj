@@ -16,6 +16,11 @@
 			path = Derot;
 			sourceTree = "<group>";
 		};
+		DC14EE19308A479B00F4D784 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -32,6 +37,7 @@
 			children = (
 				000000000000000000000010 /* Derot */,
 				000000000000000000000020 /* Products */,
+				DC14EE19308A479B00F4D784 /* Shared */,
 			);
 			sourceTree = "<group>";
 		};
@@ -58,6 +64,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				000000000000000000000010 /* Derot */,
+				DC14EE19308A479B00F4D784 /* Shared */,
 			);
 			name = Deror;
 			productName = MyApp;
