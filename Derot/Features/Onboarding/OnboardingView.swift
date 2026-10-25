@@ -29,7 +29,8 @@ struct OnboardingView: View {
                 caption: "A little nudge, right when you need it.",
                 image: "watchbunny",
                 glowColor: .pink,
-                imageWidth: 250
+                imageWidth: 250,
+                pillText:"Psst. You've been here a while"
             )
         }
         .tabViewStyle(.page).overlay(alignment: .topTrailing){
