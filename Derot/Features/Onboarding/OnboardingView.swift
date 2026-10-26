@@ -30,8 +30,13 @@ struct OnboardingView: View {
                 image: "watchbunny",
                 glowColor: .pink,
                 imageWidth: 250,
-                pillText:"Psst. You've been here a while"
+                pillText:"Psst. You've been here a while",
+                buzzes: true
+
             )
+            OnboardingResetPageView()
+    
+
         }
         .tabViewStyle(.page).overlay(alignment: .topTrailing){
             Button("Skip"){}
