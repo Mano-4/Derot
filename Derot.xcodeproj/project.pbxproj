@@ -11,10 +11,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		2E55FDB0308F7C6B00F7599C /* Exceptions for "Derot" folder in "Derot" target */ = {
+		DC14EE51308BABB600F4D784 /* Exceptions for "Derot" folder in "Derot" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
+				Features/Home/.gitkeep,
+				Features/Onboarding/.gitkeep,
+				Features/Profile/.gitkeep,
+				Models/.gitkeep,
+				Resources/.gitkeep,
+				Services/.gitkeep,
+				Shared/Components/.gitkeep,
 			);
 			target = 000000000000000100000000 /* Derot */;
 		};
@@ -24,7 +30,7 @@
 		000000000000000000000010 /* Derot */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
-				2E55FDB0308F7C6B00F7599C /* Exceptions for "Derot" folder in "Derot" target */,
+				DC14EE51308BABB600F4D784 /* Exceptions for "Derot" folder in "Derot" target */,
 			);
 			path = Derot;
 			sourceTree = "<group>";
@@ -269,7 +275,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Derot/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -307,7 +312,6 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Derot/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
