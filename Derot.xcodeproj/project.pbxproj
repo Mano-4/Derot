@@ -7,12 +7,25 @@
 	objects = {
 
 /* Begin PBXFileReference section */
-		000000000000000000000120 /* Deror.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Deror.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		000000000000000000000120 /* Derot.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Derot.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2E55FDB0308F7C6B00F7599C /* Exceptions for "Derot" folder in "Derot" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 000000000000000100000000 /* Derot */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		000000000000000000000010 /* Derot */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2E55FDB0308F7C6B00F7599C /* Exceptions for "Derot" folder in "Derot" target */,
+			);
 			path = Derot;
 			sourceTree = "<group>";
 		};
@@ -38,7 +51,7 @@
 		000000000000000000000020 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				000000000000000000000120 /* Deror.app */,
+				000000000000000000000120 /* Derot.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -46,9 +59,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		000000000000000100000000 /* Deror */ = {
+		000000000000000100000000 /* Derot */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 000000000000000110000000 /* Build configuration list for PBXNativeTarget "Deror" */;
+			buildConfigurationList = 000000000000000110000000 /* Build configuration list for PBXNativeTarget "Derot" */;
 			buildPhases = (
 				000000000000000120000000 /* Sources */,
 				000000000000000130000000 /* Frameworks */,
@@ -59,9 +72,9 @@
 			fileSystemSynchronizedGroups = (
 				000000000000000000000010 /* Derot */,
 			);
-			name = Deror;
+			name = Derot;
 			productName = MyApp;
-			productReference = 000000000000000000000120 /* Deror.app */;
+			productReference = 000000000000000000000120 /* Derot.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -93,7 +106,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				000000000000000100000000 /* Deror */,
+				000000000000000100000000 /* Derot */,
 			);
 		};
 /* End PBXProject section */
@@ -247,7 +260,7 @@
 			};
 			name = Release;
 		};
-		000000000000000111000000 /* Debug configuration for PBXNativeTarget "Deror" */ = {
+		000000000000000111000000 /* Debug configuration for PBXNativeTarget "Derot" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -256,6 +269,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Derot/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -284,7 +298,7 @@
 			};
 			name = Debug;
 		};
-		000000000000000112000000 /* Release configuration for PBXNativeTarget "Deror" */ = {
+		000000000000000112000000 /* Release configuration for PBXNativeTarget "Derot" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
@@ -293,6 +307,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = Derot/Info.plist;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphoneos*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSceneManifest_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents[sdk=iphoneos*]" = YES;
@@ -332,11 +347,11 @@
 			);
 			defaultConfigurationName = Release;
 		};
-		000000000000000110000000 /* Build configuration list for PBXNativeTarget "Deror" */ = {
+		000000000000000110000000 /* Build configuration list for PBXNativeTarget "Derot" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
-				000000000000000111000000 /* Debug configuration for PBXNativeTarget "Deror" */,
-				000000000000000112000000 /* Release configuration for PBXNativeTarget "Deror" */,
+				000000000000000111000000 /* Debug configuration for PBXNativeTarget "Derot" */,
+				000000000000000112000000 /* Release configuration for PBXNativeTarget "Derot" */,
 			);
 			defaultConfigurationName = Release;
 		};
