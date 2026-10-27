@@ -1,6 +1,7 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
+import AVFoundation
 #elseif canImport(AppKit)
 import AppKit
 #endif
@@ -10,7 +11,7 @@ public struct FindThreeThingsView: View {
     private let onClose: (() -> Void)?
     private let onChoosePhotos: ((String) -> Void)?
 
-    // The team can attach its own photo flow here. No camera code lives in this view.
+    // Pass onChoosePhotos to replace the built-in camera flow with your own.
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
@@ -42,14 +43,25 @@ public struct FindThreeThingsView: View {
     @State private var screen: Screen = .instructions
     @State private var mode: Mode = .writing
     @State private var answers = ["", "", ""]
+    // One optional photo per slot; nil means the slot is still empty.
+    @State private var photos: [Image?] = [nil, nil, nil]
+    // Camera state: whether the camera screen is open, and which slot (0, 1 or 2) the next photo goes into.
+    @State private var showCamera = false
+    @State private var cameraSlot = 0
+    @State private var showCameraDenied = false
+    @State private var showCameraUnavailable = false
     @State private var selectedColor: RainbowColor = RainbowColor.allCases.randomElement() ?? .blue
     @FocusState private var focusedLine: Int?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let yellow = Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
     private var completedCount: Int {
         answers.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
+    }
+    private var photoCount: Int {
+        photos.filter { $0 != nil }.count
     }
 
     public var body: some View {
@@ -70,7 +82,8 @@ public struct FindThreeThingsView: View {
                     case .instructions:
                         instructions.frame(minHeight: max(0, geometry.size.height - 56))
                     case .activity:
-                        activity
+                        // Fills the screen so photo mode can keep its buttons at the bottom.
+                        activity.frame(minHeight: max(0, geometry.size.height - 56), alignment: .top)
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -88,7 +101,26 @@ public struct FindThreeThingsView: View {
         #if os(iOS)
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
+        // Shows Apple's camera full screen when showCamera becomes true.
+        // CameraPicker closes itself after a photo is taken or the user cancels.
+        .fullScreenCover(isPresented: $showCamera) {
+            CameraPicker { uiImage in
+                photos[cameraSlot] = Image(uiImage: uiImage)
+            }
+            .ignoresSafeArea()
+        }
         #endif
+        .alert("Camera access is off", isPresented: $showCameraDenied) {
+            Button("Open Settings", action: openSettings)
+            Button("Not now", role: .cancel) {}
+        } message: {
+            Text("Allow camera access in Settings to snap your three things, or write them instead.")
+        }
+        .alert("No camera found", isPresented: $showCameraUnavailable) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("This device doesn't have a camera. You can write your three things instead.")
+        }
     }
 
     private var badge: some View {
@@ -122,6 +154,7 @@ public struct FindThreeThingsView: View {
             Spacer(minLength: 36)
             yellowButton("Start") {
                 answers = ["", "", ""]
+                photos = [nil, nil, nil]
                 mode = .writing
                 screen = .activity
             }
@@ -297,34 +330,145 @@ public struct FindThreeThingsView: View {
         }
     }
 
+    private var nextEmptySlot: Int? {
+        photos.firstIndex { $0 == nil }
+    }
+
     private var photoChoice: some View {
-        VStack(spacing: 18) {
-            Text("Three things, three photos")
-                .font(.custom("ComingSoon-Regular", size: 22))
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Three things, three photos")
+                    .font(.custom("ComingSoon-Regular", size: 22))
+                Spacer(minLength: 4)
+                Text("\(photoCount) of 3")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize()
+            }
+
+            Text(nextEmptySlot.map { "Snap something \(selectedColor.rawValue) for photo \($0 + 1)" }
+                 ?? "All three found. Lovely noticing!")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+
             HStack(spacing: 12) {
-                ForEach(1..<4, id: \.self) { number in
-                    VStack(spacing: 12) {
-                        Image(systemName: "camera")
-                            .font(.system(size: 24, weight: .light))
-                        Text("Photo \(number)")
-                            .font(.system(size: 12))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 120)
-                    .background(yellow.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+                ForEach(0..<3, id: \.self) { index in
+                    photoSlot(index)
                 }
             }
 
-            // Your friend supplies this callback to open her three-photo flow.
-            yellowButton("Take photos") { onChoosePhotos?(selectedColor.rawValue) }
-                .disabled(onChoosePhotos == nil)
-                .opacity(onChoosePhotos == nil ? 0.45 : 1)
+            // Pushes the buttons to the bottom of the screen, above the home indicator.
+            Spacer(minLength: 24)
 
-            Button("Write them instead") { mode = .writing }
-                .font(.system(size: 14, weight: .medium))
-                .frame(minHeight: 44)
+            VStack(spacing: 4) {
+                if photoCount == 3 {
+                    yellowButton("Finish", action: finish)
+                } else {
+                    yellowButton("Take photos", action: takePhoto)
+                }
+
+                Button("Write them instead") { mode = .writing }
+                    .font(.system(size: 14, weight: .medium))
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private func photoSlot(_ index: Int) -> some View {
+        let isNext = index == nextEmptySlot
+
+        return RoundedRectangle(cornerRadius: 12)
+            .fill(yellow.opacity(isNext ? 0.4 : 0.25))
+            .aspectRatio(3 / 4, contentMode: .fit)
+            .overlay {
+                if let photo = photos[index] {
+                    photo
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    VStack(spacing: 10) {
+                        Image(systemName: "camera")
+                            .font(.system(size: 22, weight: .light))
+                        Text("Photo \(index + 1)")
+                            .font(.system(size: 12))
+                    }
+                    .foregroundStyle(isNext ? .black : .secondary)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .overlay(alignment: .topTrailing) {
+                if photos[index] != nil {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 22, height: 22)
+                        .background(Color(red: 0.44, green: 0.56, blue: 0.35), in: Circle())
+                        .padding(6)
+                }
+            }
+            .overlay {
+                if isNext {
+                    RoundedRectangle(cornerRadius: 12)
+                        .strokeBorder(.black.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                }
+            }
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(photos[index] == nil ? "Photo \(index + 1), not taken yet" : "Photo \(index + 1), taken")
+    }
+
+    // Runs when the user taps "Take photos".
+    // It checks for a camera and for permission before opening the camera.
+    private func takePhoto() {
+        if let onChoosePhotos {
+            onChoosePhotos(selectedColor.rawValue)
+            return
+        }
+        // The photo always goes into the first empty slot.
+        guard let slot = nextEmptySlot else { return }
+
+        #if os(iOS)
+        // Step 1: does this device have a camera at all?
+        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
+            showCameraUnavailable = true
+            return
+        }
+        // Step 2: has the user allowed Derot to use the camera?
+        // (The text in the iOS permission popup comes from NSCameraUsageDescription in Info.plist.)
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            // Already allowed: open the camera.
+            openCamera(for: slot)
+        case .notDetermined:
+            // Never asked yet: iOS shows its permission popup and waits for the answer.
+            Task {
+                if await AVCaptureDevice.requestAccess(for: .video) {
+                    openCamera(for: slot)
+                } else {
+                    showCameraDenied = true
+                }
+            }
+        default:
+            // Denied (or blocked by Screen Time): explain how to turn it on in Settings.
+            showCameraDenied = true
+        }
+        #else
+        showCameraUnavailable = true
+        #endif
+    }
+
+    // Remembers which slot to fill, then opens the camera (see .fullScreenCover in body).
+    private func openCamera(for slot: Int) {
+        cameraSlot = slot
+        showCamera = true
+    }
+
+    private func openSettings() {
+        #if os(iOS)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
+        }
+        #endif
     }
 
     private var completion: some View {
@@ -366,7 +510,8 @@ public struct FindThreeThingsView: View {
     }
 
     private func finish() {
-        guard screen == .activity, mode == .writing, completedCount == 3 else { return }
+        let isDone = mode == .writing ? completedCount == 3 : photoCount == 3
+        guard screen == .activity, isDone else { return }
         focusedLine = nil
         screen = .complete
         onComplete(10)
@@ -379,6 +524,7 @@ public struct FindThreeThingsView: View {
         } else {
             dismiss()
             answers = ["", "", ""]
+            photos = [nil, nil, nil]
             mode = .writing
             selectedColor = RainbowColor.allCases.randomElement() ?? .blue
             screen = .instructions

@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Derot uses the camera so you can snap the things you notice during activities.</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>ComingSoon-Regular.ttf</string>
