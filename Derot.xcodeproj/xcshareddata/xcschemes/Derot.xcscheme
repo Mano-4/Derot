@@ -64,6 +64,7 @@
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "000000000000000100000000"
             BuildableName = "Derot.app"
+            BlueprintName = "Derot"
             ReferencedContainer = "container:Derot.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
