@@ -28,9 +28,9 @@ struct SetupIntroView: View {
             Spacer()
 
             VStack(spacing: 12) {
-                Text("Mr. Rabbit only counts minutes in the apps you pick, and checks in when it's time to pause.")
+                /*Text("Mr. Rabbit only counts minutes in the apps you pick, and checks in when it's time to pause.")
                     .font(.system(.callout, design: .rounded))
-                    .multilineTextAlignment(.center)
+                    .multilineTextAlignment(.center)*/
 
                 Text("Your data never leaves your phone.")
                     .font(.system(.footnote, design: .rounded))
