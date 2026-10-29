@@ -1,11 +1,12 @@
 import SwiftUI
+import Combine
 #if canImport(UIKit)
 import UIKit
 #elseif canImport(AppKit)
 import AppKit
 #endif
 
-/// Instructions + guided exercise. Your app supplies the ending through onFinish.
+/// A complete guided reset. Supply onFinish only to replace the built-in ending.
 @MainActor
 public struct NeckResetView: View {
     private let onComplete: (Int) -> Void
@@ -20,27 +21,35 @@ public struct NeckResetView: View {
         self.onFinish = onFinish
     }
 
-    @State private var isPracticing = false
-    @State private var step = 0
-    @State private var isPaused = false
+    private enum Stage: Equatable { case introduction, meetRabbit, practice, complete }
+    @State private var stage: Stage = .introduction
+    @State private var guide = NeckResetHoldGuide()
     @State private var hasFinished = false
+    @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let green = Color(red: 174 / 255, green: 197 / 255, blue: 109 / 255)
-    private let movements = NeckResetMovement.allCases
-    private var movement: NeckResetMovement { movements[step] }
-    private var isLast: Bool { step == movements.count - 1 }
+    private let ticker = Timer.publish(every: 1.0 / 30, on: .main, in: .common).autoconnect()
+    private var isPracticing: Bool { stage == .practice }
+    private var movement: NeckResetMovement { guide.movement }
+    private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     public var body: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    topBar
+                    if stage != .complete { topBar }
                     Group {
-                        if isPracticing { practice }
-                        else { introduction }
+                        switch stage {
+                        case .introduction: introduction
+                        case .meetRabbit: meetRabbit
+                        case .practice: practice
+                        case .complete: completion.transition(.opacity)
+                        }
                     }
-                    .frame(minHeight: max(0, geometry.size.height - 56))
+                    .frame(minHeight: max(0, geometry.size.height - (stage == .complete ? 12 : 56)))
                 }
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
@@ -57,6 +66,28 @@ public struct NeckResetView: View {
         .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        .onAppear { isOnScreen = true }
+        .onReceive(ticker) { _ in
+            guard isOnScreen, isPracticing, !hasFinished, scenePhase == .active else { return }
+            // A pause/background event can land exactly on the final return boundary.
+            if guide.phase == .complete { finish(); return }
+            guard !guide.isPaused, guide.phase != .ready else { return }
+            guide.update(at: now, reduceMotion: reduceMotion)
+            if guide.phase == .complete { finish() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active, isPracticing, !hasFinished {
+                guide.pause(at: now, reduceMotion: reduceMotion)
+            }
+        }
+        .onChange(of: reduceMotion) { _, _ in
+            guard isPracticing, !hasFinished, !guide.isPaused else { return }
+            guide.update(at: now, reduceMotion: reduceMotion)
+        }
+        .onDisappear {
+            isOnScreen = false
+            if isPracticing { guide.pause(at: now, reduceMotion: reduceMotion) }
+        }
     }
 
     private var topBar: some View {
@@ -69,7 +100,7 @@ public struct NeckResetView: View {
             }
             .accessibilityLabel("Close activity")
             Spacer()
-            if isPracticing { badge }
+            if stage != .introduction { badge }
             Spacer()
             Color.clear.frame(width: 44, height: 44)
         }
@@ -85,14 +116,18 @@ public struct NeckResetView: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 18) {
-            NeckResetAnimationView(isAnimating: false)
+            // Replace this symbol with your own transparent intro illustration later.
+            Image(systemName: "photo")
+                .font(.system(size: 44, weight: .light))
+                .foregroundStyle(green.opacity(0.8))
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(green.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
+                .accessibilityLabel("Activity illustration placeholder")
 
             HStack(spacing: 12) {
                 badge
-                Label("About 1m · at your pace", systemImage: "clock")
+                Text("Four gentle holds")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
             }
@@ -102,8 +137,8 @@ public struct NeckResetView: View {
                 .font(.custom("ComingSoon-Regular", size: 34))
 
             instruction("1", "Sit comfortably. Let your shoulders relax.")
-            instruction("2", "Slowly look left and right, then gently tilt toward each shoulder.")
-            instruction("3", "Return to center between movements. Choose Next when you’re ready.")
+            instruction("2", "Follow Mr. Rabbit as he looks and tilts to each side.")
+            instruction("3", "Aim for ten seconds per hold. Pause or move on whenever you’re ready.")
 
             Text("Keep every movement small and comfortable. Stop if you feel pain or dizziness.")
                 .font(.system(size: 12))
@@ -128,71 +163,168 @@ public struct NeckResetView: View {
         }
     }
 
-    private var practice: some View {
+    private var meetRabbit: some View {
         VStack(spacing: 16) {
             Text("Neck Reset")
                 .font(.custom("ComingSoon-Regular", size: 34))
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
 
-            Spacer(minLength: 16)
+            Spacer(minLength: 20)
+            NeckResetAnimationView(isAnimating: false)
+                .frame(maxWidth: 340)
+                .frame(height: 260)
+            Text("Follow Mr. Rabbit")
+                .font(.custom("ComingSoon-Regular", size: 22))
+                .multilineTextAlignment(.center)
+            Text("Move gently with him.")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Spacer(minLength: 20)
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            do { try await Task.sleep(for: .seconds(2)) }
+            catch { return }
+            guard !Task.isCancelled, stage == .meetRabbit, scenePhase == .active else { return }
+            beginPractice()
+        }
+    }
 
-            NeckResetAnimationView(movement: movement,
-                                   isAnimating: !isPaused && !hasFinished,
-                                   showsInstructions: true)
-                .id(movement)
+    private var practice: some View {
+        VStack(spacing: 8) {
+            Text("Neck Reset")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.top, 12)
+
+            Text(movement.shortTitle)
+                .font(.custom("ComingSoon-Regular", size: 34))
+                .multilineTextAlignment(.center)
+
+            Text(phaseInstruction)
+                .font(.custom("ComingSoon-Regular", size: 16))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, minHeight: 44)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+
+            Spacer(minLength: 12)
+
+            // The activity controls the pose directly. It never uses a repeating animation.
+            NeckResetDrawing(movement: movement, amount: guide.amount,
+                             showsArrow: guide.phase == .positioning)
+                .aspectRatio(360.0 / 370.0, contentMode: .fit)
+                .frame(height: 270)
                 .frame(maxWidth: 340)
 
-            ProgressView(value: Double(step + 1), total: Double(movements.count))
-                .tint(green)
-                .frame(width: 130)
-                .accessibilityLabel("Movement \(step + 1) of \(movements.count)")
-            Text("\(step + 1) of \(movements.count)")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
+            holdTimer
 
             Spacer(minLength: 16)
+        }
+    }
 
-            Button {
-                isPaused.toggle()
-            } label: {
-                Image(systemName: isPaused ? "play.fill" : "pause.fill")
-                    .font(.system(size: 17))
-                    .foregroundStyle(.white)
-                    .frame(width: 46, height: 46)
-                    .background(.black, in: Circle())
+    private var holdTimer: some View {
+        Group {
+            if guide.phase == .holding || guide.phase == .ready {
+                VStack(spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                        Text("\(guide.secondsRemaining)")
+                            .font(.custom("ComingSoon-Regular", size: 34))
+                            .monospacedDigit()
+                        Text("seconds")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
+                    Text(guide.isPaused ? "Paused" : (guide.phase == .ready ? "Hold complete" : "Hold gently"))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel("\(guide.secondsRemaining) seconds remaining\(guide.isPaused ? ", paused" : "")")
+            } else {
+                Text(guide.isPaused ? "Paused" : "Move gently")
+                    .font(.custom("ComingSoon-Regular", size: 16))
+                    .foregroundStyle(.secondary)
             }
-            .accessibilityLabel(isPaused ? "Resume demonstration" : "Pause demonstration")
-            .disabled(hasFinished)
+        }
+        .frame(height: 64)
+    }
+
+    private var phaseInstruction: String {
+        if guide.isPaused { return "Continue whenever you’re ready." }
+        switch guide.phase {
+        case .positioning: return "Move slowly with Mr. Rabbit."
+        case .holding: return "Stay here comfortably."
+        case .ready: return "Move on whenever you’re ready."
+        case .returning, .complete: return "Take your time."
+        }
+    }
+
+    private var completion: some View {
+        VStack(spacing: 22) {
+            Spacer(minLength: 28)
+
+            Text("A little time for you.")
+                .font(.custom("ComingSoon-Regular", size: 28))
+                .multilineTextAlignment(.center)
+
+            NeckResetDrawing(movement: .lookRight, amount: 0, showsArrow: false)
+                .frame(width: 230, height: 236)
+                .accessibilityHidden(true)
+
+            Text("You gave your body a moment.")
+                .font(.custom("ComingSoon-Regular", size: 16))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 280)
+                .fixedSize(horizontal: false, vertical: true)
+
+            Label("+10 pts", systemImage: "star.fill")
+                .font(.system(size: 13, weight: .medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(green.opacity(0.45), in: Capsule())
+
+            Spacer(minLength: 28)
         }
     }
 
     private var controls: some View {
         VStack(spacing: 4) {
-            if isPracticing {
-                primaryButton(isLast ? "Finish" : "Next", action: next)
-                    .disabled(hasFinished)
-                HStack {
-                    Button("Skip this movement", action: next)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                    if !isLast {
-                        Button("Finish", action: finish)
-                            .frame(maxWidth: .infinity, minHeight: 44)
+            switch stage {
+            case .practice:
+                HStack(spacing: 12) {
+                    Button(guide.isPaused ? "Continue" : "Pause") {
+                        if guide.isPaused { guide.resume(at: now, reduceMotion: reduceMotion) }
+                        else { guide.pause(at: now, reduceMotion: reduceMotion) }
                     }
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(maxWidth: .infinity, minHeight: 48)
+                    .background(green.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
+                    .overlay(RoundedRectangle(cornerRadius: 12).stroke(green.opacity(0.4), lineWidth: 1))
+
+                    primaryButton(guide.isLast || guide.isFinishing ? "Finish" : "Next", action: next)
+                        .disabled(!guide.canAdvance)
                 }
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
                 .disabled(hasFinished)
-            } else {
-                primaryButton("Start") {
-                    step = 0
-                    isPaused = false
-                    hasFinished = false
-                    isPracticing = true
-                }
+
+                Button("End early", action: endEarly)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .disabled(hasFinished)
+            case .meetRabbit:
+                primaryButton("Begin now", action: beginPractice)
+            case .introduction:
+                primaryButton("Start", action: showRabbit)
                 Button("Pick something else", action: close)
                     .font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, minHeight: 44)
+            case .complete:
+                primaryButton("Back home", action: close)
             }
         }
         .frame(maxWidth: 520)
@@ -211,36 +343,181 @@ public struct NeckResetView: View {
         }
     }
 
+    private func showRabbit() {
+        guard stage == .introduction else { return }
+        guide = NeckResetHoldGuide()
+        hasFinished = false
+        stage = .meetRabbit
+    }
+
+    private func beginPractice() {
+        guard stage == .meetRabbit else { return }
+        guide.start(at: now, reduceMotion: reduceMotion)
+        stage = .practice
+    }
+
     private func next() {
         guard isPracticing, !hasFinished else { return }
-        if isLast { finish() }
-        else {
-            step += 1
-            isPaused = false
-        }
+        guide.requestNext(at: now, reduceMotion: reduceMotion)
+    }
+
+    private func endEarly() {
+        guard isPracticing, !hasFinished else { return }
+        guide.requestFinish(at: now, reduceMotion: reduceMotion)
     }
 
     private func finish() {
         guard isPracticing, !hasFinished else { return }
         hasFinished = true
-        isPaused = true
+        guide.pause(at: now, reduceMotion: reduceMotion)
         onComplete(10)
         if let onFinish { onFinish() }
-        else { close() }
+        else {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                stage = .complete
+            }
+        }
     }
 
     private func close() {
-        isPracticing = false
-        step = 0
-        isPaused = false
+        stage = .introduction
+        guide = NeckResetHoldGuide()
         hasFinished = false
         if let onClose { onClose() }
         else { dismiss() }
     }
 }
 
+/// Foreground-only timing. Each hold begins with a fresh full ten seconds.
+struct NeckResetHoldGuide {
+    enum Phase: Equatable { case positioning, holding, ready, returning, complete }
+    static let order: [NeckResetMovement] = [.lookRight, .lookLeft, .tiltRight, .tiltLeft]
+    private(set) var index = 0
+    private(set) var phase: Phase = .positioning
+    private(set) var elapsed: TimeInterval = 0
+    private(set) var isPaused = true
+    private(set) var isFinishing = false
+    private var savedElapsed: TimeInterval = 0
+    private var startedAt: TimeInterval?
+    private var returnStartAmount: Double = 1
+
+    var movement: NeckResetMovement { Self.order[index] }
+    var isLast: Bool { index == Self.order.count - 1 }
+    var canAdvance: Bool { phase != .complete }
+    var secondsRemaining: Int { max(0, Int(ceil(10 - elapsed))) }
+    private var returnDuration: TimeInterval { max(0.12, 2.5 * returnStartAmount) }
+    var amount: Double {
+        switch phase {
+        case .positioning: return Self.ease(min(1, max(0, elapsed / 2.5)))
+        case .holding, .ready: return 1
+        case .returning: return returnStartAmount * (1 - Self.ease(min(1, max(0, elapsed / returnDuration))))
+        case .complete: return 0
+        }
+    }
+
+    mutating func start(at time: TimeInterval, reduceMotion: Bool) {
+        self = Self()
+        isPaused = false
+        begin(reduceMotion ? .holding : .positioning, at: time)
+    }
+
+    mutating func update(at time: TimeInterval, reduceMotion: Bool) {
+        guard !isPaused, phase != .ready, phase != .complete else { return }
+        if reduceMotion, phase == .positioning { begin(.holding, at: time); return }
+        if reduceMotion, phase == .returning { advanceAfterReturn(at: time, reduceMotion: true); return }
+        guard let startedAt else { return }
+        elapsed = savedElapsed + max(0, time - startedAt)
+        switch phase {
+        case .positioning:
+            if elapsed >= 2.5 {
+                // Do not subtract a delayed positioning frame from the user's hold.
+                begin(.holding, at: time)
+            }
+        case .holding:
+            if elapsed >= 10 {
+                elapsed = 10
+                savedElapsed = 10
+                phase = .ready
+                self.startedAt = nil
+            }
+        case .returning:
+            if elapsed >= returnDuration { advanceAfterReturn(at: time, reduceMotion: reduceMotion) }
+        case .ready, .complete:
+            break
+        }
+    }
+
+    mutating func requestNext(at time: TimeInterval, reduceMotion: Bool) {
+        guard canAdvance else { return }
+        // An in-flight Next request stays one transition, even with repeated taps.
+        // Check before update so a tap at the boundary cannot skip the new side.
+        if phase == .returning {
+            if isPaused { resume(at: time, reduceMotion: reduceMotion) }
+            return
+        }
+        if !isPaused { update(at: time, reduceMotion: reduceMotion) }
+        returnStartAmount = amount
+        isPaused = false
+        // Return from the actual angle, including a partially reached or paused pose.
+        begin(.returning, at: time)
+    }
+
+    mutating func requestFinish(at time: TimeInterval, reduceMotion: Bool) {
+        guard canAdvance else { return }
+        isFinishing = true
+        requestNext(at: time, reduceMotion: reduceMotion)
+    }
+
+    mutating func pause(at time: TimeInterval, reduceMotion: Bool) {
+        guard !isPaused else { return }
+        update(at: time, reduceMotion: reduceMotion)
+        savedElapsed = elapsed
+        startedAt = nil
+        isPaused = true
+    }
+
+    mutating func resume(at time: TimeInterval, reduceMotion: Bool) {
+        guard isPaused, phase != .complete else { return }
+        isPaused = false
+        savedElapsed = elapsed
+        startedAt = phase == .ready ? nil : time
+        if reduceMotion, phase == .positioning { begin(.holding, at: time) }
+        else if reduceMotion, phase == .returning { advanceAfterReturn(at: time, reduceMotion: true) }
+    }
+
+    private mutating func begin(_ next: Phase, at time: TimeInterval) {
+        phase = next
+        elapsed = 0
+        savedElapsed = 0
+        startedAt = time
+    }
+
+    private mutating func advanceAfterReturn(at time: TimeInterval, reduceMotion: Bool) {
+        if isFinishing || index == Self.order.count - 1 {
+            phase = .complete
+            elapsed = 0
+            savedElapsed = 0
+            startedAt = nil
+        } else {
+            index += 1
+            begin(reduceMotion ? .holding : .positioning, at: time)
+        }
+    }
+
+    private static func ease(_ value: Double) -> Double { value * value * (3 - 2 * value) }
+}
+
 public enum NeckResetMovement: Int, CaseIterable, Hashable {
     case lookLeft, lookRight, tiltLeft, tiltRight
+
+    fileprivate var shortTitle: String {
+        switch self {
+        case .lookLeft: return "Look left"
+        case .lookRight: return "Look right"
+        case .tiltLeft: return "Tilt left"
+        case .tiltRight: return "Tilt right"
+        }
+    }
 
     fileprivate var isTilt: Bool { self == .tiltLeft || self == .tiltRight }
     // Demonstrator's left appears on the viewer's right.
@@ -310,12 +587,13 @@ public struct NeckResetAnimationView: View {
 
     private func instructionText(returning: Bool) -> some View {
         VStack(spacing: 10) {
-            Text(returning ? "Slowly return to center." : movement.cue)
+            Text(!isAnimating ? "Take a moment." : (returning ? "Take your time." : movement.cue))
                 .font(.custom("ComingSoon-Regular", size: 22))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 60)
                 .fixedSize(horizontal: false, vertical: true)
-            Text(returning ? "Let your head rest before the next movement." : movement.detail)
+            Text(!isAnimating ? "Continue whenever you’re ready." :
+                    (returning ? "Let your head rest before the next movement." : movement.detail))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -333,15 +611,15 @@ private struct NeckResetMotion {
     let showsArrow: Bool
 
     static func sample(_ elapsed: TimeInterval) -> NeckResetMotion {
-        let t = max(0, elapsed).truncatingRemainder(dividingBy: 10)
-        if t < 1 { return NeckResetMotion(amount: 0, returning: false, showsArrow: false) }
-        if t < 3.5 {
-            return NeckResetMotion(amount: ease((t - 1) / 2.5),
+        // Begin on the first frame. Keep the outward/return movement gentle.
+        let t = max(0, elapsed).truncatingRemainder(dividingBy: 8.5)
+        if t < 2.5 {
+            return NeckResetMotion(amount: ease(t / 2.5),
                                    returning: false, showsArrow: true)
         }
-        if t < 5.5 { return NeckResetMotion(amount: 1, returning: false, showsArrow: true) }
-        if t < 8 {
-            return NeckResetMotion(amount: 1 - ease((t - 5.5) / 2.5),
+        if t < 4 { return NeckResetMotion(amount: 1, returning: false, showsArrow: true) }
+        if t < 6.5 {
+            return NeckResetMotion(amount: 1 - ease((t - 4) / 2.5),
                                    returning: true, showsArrow: false)
         }
         return NeckResetMotion(amount: 0, returning: true, showsArrow: false)
@@ -396,7 +674,7 @@ private struct NeckResetDrawing: View {
 
     private func head(_ art: NeckResetLayers, scale: CGFloat) -> some View {
         // The turn uses a true three-quarter drawing plus a little perspective motion.
-        let blend = movement.isTilt ? 0 : min(1, max(0, (amount - 0.35) / 0.3))
+        let blend = movement.isTilt ? 0 : min(1, max(0, amount / 0.15))
         return ZStack {
             headImage(art.heads[0]).opacity(1 - blend)
             if !movement.isTilt {
@@ -511,4 +789,5 @@ private enum NeckResetArtwork {
 #Preview {
     NeckResetView()
 }
+
 
