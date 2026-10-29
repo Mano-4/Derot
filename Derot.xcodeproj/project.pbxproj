@@ -26,7 +26,6 @@
 				Models/.gitkeep,
 				Resources/.gitkeep,
 				Services/.gitkeep,
-				Shared/Components/.gitkeep,
 			);
 			target = 000000000000000100000000 /* Derot */;
 		};
@@ -277,6 +276,7 @@
 		000000000000000111000000 /* Debug configuration for PBXNativeTarget "Derot" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Derot/Derot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
@@ -315,6 +315,7 @@
 		000000000000000112000000 /* Release configuration for PBXNativeTarget "Derot" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = Derot/Derot.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_APP_SANDBOX = YES;
