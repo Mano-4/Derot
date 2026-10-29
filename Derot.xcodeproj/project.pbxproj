@@ -19,6 +19,7 @@
 		DC14EE51308BABB600F4D784 /* Exceptions for "Derot" folder in "Derot" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				"ComingSoon-Regular.ttf",
 				Features/Home/.gitkeep,
 				Features/Onboarding/.gitkeep,
 				Features/Profile/.gitkeep,
