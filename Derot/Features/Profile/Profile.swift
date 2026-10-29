@@ -500,7 +500,7 @@ struct TrackedAppRow: View {
     }
 }
 
-// MARK: - Permissions
+
 
 enum PermissionKind {
     case screenTime, camera, notifications, photos

@@ -438,39 +438,11 @@ struct StreakFlame: View {
 
 
 
-struct MainTabView: View {
-    var body: some View {
-        TabView {
-            HomeView()
-                .tabItem {
-                    Label("Home", systemImage: "house")
-                }
-
-            Text("Activity")
-                .tabItem {
-                    Label(
-                        "Activity",
-                        systemImage: "square.grid.2x2"
-                    )
-                }
-
-            NavigationStack {
-                ProfileView()
-            }
-            .tabItem {
-                Label(
-                    "Profile",
-                    systemImage: "person.circle"
-                )
-            }
-        }
-        .tint(.blue)
-    }
-}
-
 
 
 #Preview {
-    MainTabView()
+    NavigationStack {
+        HomeView()
+    }
         .environmentObject(CharacterStore())
 }
