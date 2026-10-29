@@ -1,17 +1,13 @@
 import SwiftUI
-import Playgrounds
 
 struct ContentView: View {
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
+
     var body: some View {
-        Text("Hello, world!")
-            .padding()
+        if hasSeenOnboarding {
+            Text("Home")          // replace with home view
+        } else {
+            OnboardingView()
+        }
     }
-}
-
-#Preview {
-    ContentView()
-}
-
-#Playground {
-    _ = 1 + 2
 }
