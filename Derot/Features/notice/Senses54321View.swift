@@ -290,7 +290,7 @@ public struct HereAndNowView: View {
     private var completion: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 36)
-            SensesArtwork(name: "notice-senses-complete")
+            SensesArtwork(name: "celebratingbunny")
                 .frame(width: 180, height: 200)
                 .background {
                     Circle()

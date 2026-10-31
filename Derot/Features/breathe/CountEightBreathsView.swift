@@ -196,7 +196,7 @@ public struct CountEightBreathsView: View {
             Spacer(minLength: 36)
             ZStack {
                 CountBreathsConfetti()
-                CountBreathsArtwork(name: "breathe-celebration")
+                CountBreathsArtwork(name: "celebratingbunny")
                     .frame(width: 170, height: 190)
                     .offset(y: 15)
             }

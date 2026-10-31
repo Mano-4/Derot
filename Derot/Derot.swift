@@ -19,9 +19,12 @@ import UserNotifications
                 .environmentObject(store)
                 // Opens the activity over any tab when a pause notification is tapped.
                 .fullScreenCover(item: $pauseRouter.activityToOpen) { activity in
-                    ActivityScreen(activity: activity) {
-                        pauseRouter.activityToOpen = nil
-                    }
+                    ActivityScreen(
+                        activity: activity,
+                        // Finished: switch to Home behind the activity, so "Back home" lands there.
+                        onComplete: { _ in TabRouter.shared.selected = .home },
+                        onClose: { pauseRouter.activityToOpen = nil }
+                    )
                 }
                 #if DEBUG
                 // Test-only button that opens a fake shield (see ShieldPreviewView).

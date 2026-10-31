@@ -416,7 +416,7 @@ public struct FindThreeThingsView: View {
             Spacer(minLength: 36)
             ZStack {
                 NoticeBlueConfetti()
-                NoticeBlueArtwork(name: "breathe-celebration")
+                NoticeBlueArtwork(name: "celebratingbunny")
                     .frame(width: 170, height: 190)
                     .offset(y: 15)
             }

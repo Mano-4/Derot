@@ -439,21 +439,27 @@ struct StreakFlame: View {
 
 
 struct MainTabView: View {
+    // Which tab is showing. Shared so "Back home" in an activity can switch to Home.
+    @ObservedObject private var tabs = TabRouter.shared
+
     var body: some View {
-        TabView {
+        TabView(selection: $tabs.selected) {
             HomeView()
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
+                .tag(MainTab.home)
 
             // Hessa's Activity Library (Features/Activities) has its own NavigationStack.
-            ActivityLibraryView()
+            // onReturnHome runs after an activity is finished and closed with "Back home".
+            ActivityLibraryView(onReturnHome: { tabs.selected = .home })
                 .tabItem {
                     Label(
                         "Activity",
                         systemImage: "square.grid.2x2"
                     )
                 }
+                .tag(MainTab.activity)
 
             NavigationStack {
                 ProfileView()
@@ -464,6 +470,7 @@ struct MainTabView: View {
                     systemImage: "person.circle"
                 )
             }
+            .tag(MainTab.profile)
         }
         .tint(.blue)
     }

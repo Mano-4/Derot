@@ -281,7 +281,7 @@ public struct OneGoodThingView: View {
                 Circle()
                     .fill(yellow.opacity(0.22))
                     .frame(width: 166, height: 166)
-                GoodThingArtwork(name: "notice-good-listening")
+                GoodThingArtwork(name: "celebratingbunny")
                     .frame(width: 170, height: 190)
                 Image(systemName: "heart")
                     .font(.system(size: 22, weight: .light))

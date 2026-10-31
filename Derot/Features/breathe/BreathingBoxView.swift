@@ -6,7 +6,7 @@ import UIKit
 import AppKit
 #endif
 
-public struct FollowTheCircleView: View {
+public struct BreathingBoxView: View {
     // The team app can use these to save points and return to Home.
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
@@ -27,12 +27,13 @@ public struct FollowTheCircleView: View {
     @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     @ScaledMetric(relativeTo: .body) private var instructionNumberSize: CGFloat = 28
-    @ScaledMetric(relativeTo: .body) private var pauseDiameter: CGFloat = 52
+    @ScaledMetric(relativeTo: .body) private var pauseDiameter: CGFloat = 48
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let duration: TimeInterval = 60
+    private let duration: TimeInterval = 64
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
     private var blue: Color {
         colorScheme == .dark
@@ -44,13 +45,19 @@ public struct FollowTheCircleView: View {
     }
     private let yellow = Color(red: 1, green: 0.90, blue: 0)
 
-    private var breathingIn: Bool { elapsed.truncatingRemainder(dividingBy: 10) < 5 }
-    private var circleScale: CGFloat {
-        if reduceMotion { return 1 }
-        let cycle = elapsed.truncatingRemainder(dividingBy: 10)
-        let growth = cycle < 5 ? cycle / 5 : (10 - cycle) / 5
-        return 0.64 + 0.36 * growth
+    private var phaseIndex: Int { Int(elapsed / 4) % 4 }
+    private var phaseTitle: String {
+        ["Breathe in", "Hold softly", "Breathe out", "Rest a moment"][phaseIndex]
     }
+    private var phaseMessage: String {
+        [
+            "Let your breath arrive.",
+            "A quiet pause.",
+            "Let your shoulders soften.",
+            "No rush. Begin again."
+        ][phaseIndex]
+    }
+    private var secondsLeft: Int { 4 - Int(elapsed.truncatingRemainder(dividingBy: 4)) }
 
     public var body: some View {
         NavigationStack {
@@ -134,24 +141,27 @@ public struct FollowTheCircleView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            RabbitArtwork(name: introImageName)
+            BoxRabbitArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(blue.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
 
             HStack(spacing: 12) {
                 categoryBadge
-                Label("1m", systemImage: "clock")
+                Label("About 1m", systemImage: "clock")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
-            Text("Follow the circle")
+            Text("Breathing Box")
                 .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
-            instruction(number: "1", text: "Breathe in as the circle grows")
-            instruction(number: "2", text: "Breathe out as it shrinks")
+            instruction(number: "1", text: "Follow the light around the box")
+            instruction(number: "2", text: "In for 4 · hold for 4 · out for 4 · hold for 4")
+            Text("Keep it comfortable. You can pause or finish anytime.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
 
             Spacer(minLength: 36)
 
@@ -175,71 +185,68 @@ public struct FollowTheCircleView: View {
     }
 
     private var breathing: some View {
-        VStack(spacing: 16) {
-            Text("Follow the circle")
+        VStack(spacing: 14) {
+            Text("Breathing Box")
                 .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
+                .padding(.top, 8)
 
-            Spacer(minLength: 30)
+            Spacer(minLength: 28)
 
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.primary.opacity(0.045))
-                ZStack {
-                    Circle().fill(blue)
-                    RabbitArtwork(name: "breathe-circle")
-                        .padding(10)
-                }
-                .frame(width: 172, height: 172)
-                .scaleEffect(circleScale)
-                .animation(reduceMotion ? nil : .linear(duration: 0.1), value: elapsed)
+            if dynamicTypeSize.isAccessibilitySize {
+                Text(startedAt == nil ? "A little pause" : phaseTitle)
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(width: 240, height: 240)
-            .accessibilityLabel(breathingIn ? "Breathe in" : "Breathe out")
 
-            Spacer(minLength: 30)
+            BoxBreathingGuide(
+                elapsed: elapsed,
+                secondsLeft: secondsLeft,
+                title: phaseTitle,
+                color: blue,
+                reduceMotion: reduceMotion,
+                paused: startedAt == nil
+            )
+            .frame(width: 280, height: 280)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(startedAt == nil ? "Paused" : phaseTitle)
+            .accessibilityValue("\(secondsLeft) seconds")
 
-            Text(startedAt == nil ? "Take your time" : (breathingIn ? "Make a little space" : "Let the tension go"))
-                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+            Text(startedAt == nil ? "Resume whenever you’re ready." : phaseMessage)
+                .font(.body)
+                .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Text(startedAt == nil ? "Resume whenever you’re ready" : (breathingIn ? "Breathe in slowly" : "Breathe out gently"))
+                .padding(.top, 6)
+
+            Text("Round \(min(4, Int(elapsed / 16) + 1)) of 4")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .padding(.top, 2)
 
-            VStack(spacing: 5) {
-                ProgressView(value: elapsed, total: duration)
-                    .tint(.cyan)
-                HStack {
-                    Text(timeString(elapsed))
-                    Spacer()
-                    Text("1:00")
+            Spacer(minLength: 28)
+
+            VStack(spacing: 8) {
+                Button {
+                    if startedAt == nil {
+                        startedAt = Date()
+                    } else {
+                        pause()
+                    }
+                } label: {
+                    Image(systemName: startedAt == nil ? "play.fill" : "pause.fill")
+                        .font(.title3)
+                        .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                        .frame(width: pauseDiameter, height: pauseDiameter)
+                        .background(colorScheme == .dark ? Color.white : Color.black, in: Circle())
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-            }
-            .padding(.horizontal, 24)
+                .accessibilityLabel(startedAt == nil ? "Resume breathing" : "Pause breathing")
 
-            Button {
-                if startedAt == nil {
-                    startedAt = Date()
-                } else {
-                    pause()
-                }
-            } label: {
-                Image(systemName: startedAt == nil ? "play.fill" : "pause.fill")
-                    .font(.title3)
-                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
-                    .frame(width: pauseDiameter, height: pauseDiameter)
-                    .background(colorScheme == .dark ? Color.white : Color.black, in: Circle())
+                Button("Finish", action: finish)
+                    .font(.body.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
-            .accessibilityLabel(startedAt == nil ? "Resume breathing" : "Pause breathing")
-
-            Button("Finish", action: finish)
-                .font(.body.weight(.medium))
-                .frame(maxWidth: .infinity, minHeight: 44)
-                .accessibilityHint("Ends the session and shows your completion screen")
+            .padding(.bottom, 8)
         }
     }
 
@@ -247,15 +254,15 @@ public struct FollowTheCircleView: View {
         VStack(spacing: 16) {
             Spacer(minLength: 36)
             ZStack {
-                CelebrationConfetti()
-                RabbitArtwork(name: "breathe-celebration")
+                BoxCelebrationConfetti()
+                BoxRabbitArtwork(name: "celebratingbunny")
                     .frame(width: 170, height: 190)
                     .offset(y: 15)
             }
             .frame(width: 230, height: 220)
             Text("Good job!")
                 .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
-            Text("Follow the circle · \(timeString(elapsed))")
+            Text("Breathing Box · \(timeString(elapsed))")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
             Label("+10 pts", systemImage: "star.fill")
@@ -326,7 +333,127 @@ public struct FollowTheCircleView: View {
 }
 
 
-private struct CelebrationConfetti: View {
+private struct BoxBreathingGuide: View {
+    let elapsed: TimeInterval
+    let secondsLeft: Int
+    let title: String
+    let color: Color
+    let reduceMotion: Bool
+    let paused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var countSize: CGFloat = 44
+
+    private let side: CGFloat = 248
+    private let radius: CGFloat = 28
+    private var progress: Double { elapsed.truncatingRemainder(dividingBy: 16) / 16 }
+
+    // Each four-second phase follows one edge and its rounded corner.
+    private var marker: CGPoint {
+        let quarter = CGFloat(progress * 4)
+        let edge = Int(quarter)
+        let fraction = quarter - CGFloat(edge)
+        let straight = side - 2 * radius
+        let distance = fraction * (straight + .pi * radius / 2)
+        let point: CGPoint
+        if distance <= straight {
+            point = CGPoint(x: radius + distance, y: 0)
+        } else {
+            let angle = -.pi / 2 + (distance - straight) / radius
+            point = CGPoint(
+                x: side - radius + radius * cos(angle),
+                y: radius + radius * sin(angle)
+            )
+        }
+        switch edge {
+        case 1: return CGPoint(x: side - point.y, y: point.x)
+        case 2: return CGPoint(x: side - point.x, y: side - point.y)
+        case 3: return CGPoint(x: point.y, y: side - point.x)
+        default: return point
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            ZStack(alignment: .topLeading) {
+                BoxBreathingTrack()
+                    .stroke(color.opacity(0.25),
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                BoxBreathingTrack()
+                    .trim(from: 0, to: reduceMotion ? 1 : progress)
+                    .stroke(color,
+                            style: StrokeStyle(lineWidth: 3, lineCap: .round))
+
+                if !reduceMotion {
+                    Circle()
+                        .fill(color.opacity(0.2))
+                        .frame(width: 30, height: 30)
+                        .blur(radius: 3)
+                        .overlay {
+                            Circle()
+                                .fill(.white)
+                                .frame(width: 14, height: 14)
+                                .overlay(Circle().stroke(color, lineWidth: 2))
+                                .shadow(color: color.opacity(0.6), radius: 5)
+                        }
+                        .position(marker)
+                }
+            }
+            .frame(width: side, height: side)
+            // Skip the wraparound animation when a new round begins.
+            .animation(
+                reduceMotion || progress < 0.01 ? nil : .linear(duration: 0.1),
+                value: elapsed
+            )
+
+            VStack(spacing: 12) {
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(paused ? "A little pause" : title)
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Text(paused ? "—" : "\(secondsLeft)")
+                    .font(.system(size: countSize, weight: .ultraLight, design: .rounded))
+                    .foregroundStyle(.primary)
+                    .monospacedDigit()
+
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(paused ? "take your time" : "seconds")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 200)
+        }
+    }
+}
+
+// Start at the top left and follow the square clockwise.
+private struct BoxBreathingTrack: Shape {
+    func path(in rect: CGRect) -> Path {
+        let radius: CGFloat = min(28, min(rect.width, rect.height) / 2)
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX + radius, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.minY))
+        path.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.minY + radius),
+                    radius: radius, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - radius))
+        path.addArc(center: CGPoint(x: rect.maxX - radius, y: rect.maxY - radius),
+                    radius: radius, startAngle: .degrees(0), endAngle: .degrees(90), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX + radius, y: rect.maxY))
+        path.addArc(center: CGPoint(x: rect.minX + radius, y: rect.maxY - radius),
+                    radius: radius, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + radius))
+        path.addArc(center: CGPoint(x: rect.minX + radius, y: rect.minY + radius),
+                    radius: radius, startAngle: .degrees(180), endAngle: .degrees(270), clockwise: false)
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct BoxCelebrationConfetti: View {
     private let colors: [Color] = [
         Color(red: 1, green: 0.80, blue: 0),
         Color(red: 0.95, green: 0.25, blue: 0.65),
@@ -350,7 +477,7 @@ private struct CelebrationConfetti: View {
             ForEach(positions.indices, id: \.self) { index in
                 Group {
                     if index % 3 == 0 {
-                        ConfettiCurl()
+                        BoxConfettiCurl()
                             .stroke(colors[index % colors.count],
                                     style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                             .frame(width: 8, height: 15)
@@ -374,7 +501,7 @@ private struct CelebrationConfetti: View {
     }
 }
 
-private struct ConfettiCurl: Shape {
+private struct BoxConfettiCurl: Shape {
     func path(in rect: CGRect) -> Path {
         var path = Path()
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
@@ -387,7 +514,7 @@ private struct ConfettiCurl: Shape {
     }
 }
 
-private struct RabbitArtwork: View {
+private struct BoxRabbitArtwork: View {
     let name: String
 
     private var exists: Bool {
@@ -418,5 +545,5 @@ private struct RabbitArtwork: View {
 }
 
 #Preview {
-    FollowTheCircleView()
+    BreathingBoxView()
 }

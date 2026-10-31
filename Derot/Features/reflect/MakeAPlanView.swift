@@ -607,7 +607,7 @@ public struct MakeAPlanView: View {
     private var completion: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 36)
-            PlanArtwork(name: "reflect-plan-complete")
+            PlanArtwork(name: "celebratingbunny")
                 .frame(width: 180, height: 200)
                 .background {
                     Circle().fill(pink.opacity(0.3)).frame(width: 166, height: 166)

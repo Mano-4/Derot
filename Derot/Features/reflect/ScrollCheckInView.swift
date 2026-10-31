@@ -421,7 +421,7 @@ public struct ScrollCheckInView: View {
     private var completion: some View {
         VStack(spacing: 18) {
             Spacer(minLength: 36)
-            ScrollCheckInArtwork(name: "reflect-scroll-complete")
+            ScrollCheckInArtwork(name: "celebratingbunny")
                 .frame(width: 180, height: 200)
                 .background {
                     Circle().fill(pink.opacity(0.3)).frame(width: 166, height: 166)

@@ -419,7 +419,7 @@ public struct NameYourFeelingView: View {
         VStack(spacing: 18) {
             Spacer(minLength: 36)
 
-            FeelingArtwork(name: "reflect-feeling-complete")
+            FeelingArtwork(name: "celebratingbunny")
                 .frame(width: 170, height: 190)
                 .background {
                     Circle().fill(pink.opacity(0.28)).frame(width: 166, height: 166)

@@ -211,6 +211,11 @@ struct ThreePhotosView: View {
     private var completion: some View {
         VStack(spacing: 16) {
             Spacer(minLength: 36)
+            Image("celebratingbunny")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 170, height: 190)
+                .accessibilityHidden(true)
             Text("Lovely noticing!")
                 .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)

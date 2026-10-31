@@ -538,7 +538,7 @@ public struct SixWordRecallView: View {
                 .accessibilityAddTraits(.isHeader)
 
             // Add your own transparent completion rabbit with this asset name.
-            RecallArtwork(name: "think-recall-complete")
+            RecallArtwork(name: "celebratingbunny")
                 .frame(width: 170, height: 190)
 
             Text("You gave your attention something new.")
