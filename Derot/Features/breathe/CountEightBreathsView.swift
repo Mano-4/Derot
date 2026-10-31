@@ -154,7 +154,7 @@ public struct CountEightBreathsView: View {
             VStack(spacing: 12) {
                 Spacer(minLength: 24)
 
-                CountBreathsArtwork(name: "count-breaths-rabbit")
+                CountBreathsArtwork(name: "sittingbunny")
                     .frame(width: 140, height: 140)
 
                 Text("\(count) of 8 breaths")

@@ -187,7 +187,7 @@ public struct FollowTheCircleView: View {
                     .fill(Color.primary.opacity(0.045))
                 ZStack {
                     Circle().fill(blue)
-                    RabbitArtwork(name: "breathe-circle")
+                    RabbitArtwork(name: "sittingbunny")
                         .padding(10)
                 }
                 .frame(width: 172, height: 172)
