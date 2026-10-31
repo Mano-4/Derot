@@ -108,37 +108,41 @@ struct ActivityItem: Identifiable {
     let description: String
     let category: ActivityCategory
     let imageName: String
+    /// The activity screen this card opens (see ActivityCatalog.swift).
+    /// nil = the screen isn't built yet, so the card can't be opened.
+    let opens: DerotActivity?
 
     init(_ title: String, _ minutes: Int, _ description: String,
-         _ category: ActivityCategory, image: String) {
+         _ category: ActivityCategory, image: String, opens: DerotActivity? = nil) {
         self.title = title
         self.minutes = minutes
         self.description = description
         self.category = category
         self.imageName = image
+        self.opens = opens
     }
 }
 
 extension ActivityItem {
     static let all: [ActivityItem] = [
         // Notice
-        ActivityItem("Find three things", 1, "Move your attention from the screen to your surroundings.", .notice, image: "3f"),
-        ActivityItem("one good thing", 1, "savor small moments.", .notice, image: "one good thing"),
-        ActivityItem("54321 senses", 1, "ground yourself when your mind is on autopilot.", .notice, image: "54321 senses"),
+        ActivityItem("Find three things", 1, "Move your attention from the screen to your surroundings.", .notice, image: "3f", opens: .findThreeThings),
+        ActivityItem("one good thing", 1, "savor small moments.", .notice, image: "one good thing", opens: .oneGoodThing),
+        ActivityItem("54321 senses", 1, "ground yourself when your mind is on autopilot.", .notice, image: "54321 senses", opens: .senses54321),
 
         // Breathe
-        ActivityItem("Follow the Circle", 2, "Slow your breathing with a guide.", .breathe, image: "Follow the Circle"),
-        ActivityItem("Count 8 Breaths", 2, "Bring your attention back.", .breathe, image: "Count 8 Breaths"),
-        ActivityItem("Breathing Box", 2, "Find a steady breathing rhythm.", .breathe, image: "Breathing Box"),
+        ActivityItem("Follow the Circle", 2, "Slow your breathing with a guide.", .breathe, image: "Follow the Circle", opens: .followTheCircle),
+        ActivityItem("Count 8 Breaths", 2, "Bring your attention back.", .breathe, image: "Count 8 Breaths", opens: .countEightBreaths),
+        ActivityItem("Breathing Box", 2, "Find a steady breathing rhythm.", .breathe, image: "Breathing Box", opens: .breathingBox),
 
         // Reflect
-        ActivityItem("Scroll Check-In", 1, "Notice what brought you here.", .reflect, image: "Scroll Check-In"),
-        ActivityItem("Make a Plan", 2, "Choose what to do instead of scrolling.", .reflect, image: "Make a Plan"),
-        ActivityItem("Name Your Feeling", 1, "Understand how you're feeling.", .reflect, image: "Name Your Feeling"),
-        ActivityItem("Three Good Things", 2, "Notice what's going well.", .reflect, image: "Three Good Things"),
+        ActivityItem("Scroll Check-In", 1, "Notice what brought you here.", .reflect, image: "Scroll Check-In", opens: .scrollCheckIn),
+        ActivityItem("Make a Plan", 2, "Choose what to do instead of scrolling.", .reflect, image: "Make a Plan", opens: .makeAPlan),
+        ActivityItem("Name Your Feeling", 1, "Understand how you're feeling.", .reflect, image: "Name Your Feeling", opens: .nameYourFeeling),
+        ActivityItem("Three Good Things", 2, "Notice what's going well.", .reflect, image: "Three Good Things", opens: .threeGoodThings),
 
         // Move
-        ActivityItem("Neck Reset", 1, "Ease tension from looking down.", .move, image: "Neck Reset"),
+        ActivityItem("Neck Reset", 1, "Ease tension from looking down.", .move, image: "Neck Reset", opens: .neckReset),
         ActivityItem("Quick Stretch", 2, "Loosen up after sitting.", .move, image: "Quick Stretch"),
         ActivityItem("Eye Break", 1, "Give your eyes a screen break.", .move, image: "Eye Break"),
         ActivityItem("Dance Break", 3, "Lift your mood through movement.", .move, image: "Dance Break"),
@@ -232,6 +236,8 @@ struct ActivitiesHomeView: View {
 struct ActivityBrowserView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selected: ActivityCategory?
+    // The activity opened full screen after tapping a card (nil = none open).
+    @State private var openActivity: DerotActivity?
 
     init(initial: ActivityCategory?) {
         _selected = State(initialValue: initial)
@@ -274,8 +280,16 @@ struct ActivityBrowserView: View {
             ScrollView(showsIndicators: false) {
                 LazyVGrid(columns: columns, spacing: 14) {
                     ForEach(items) { activity in
-                        // Display only – no navigation on tap
-                        ActivityCard(activity: activity)
+                        // Tapping opens the activity's screen. Cards whose screen
+                        // isn't built yet (opens == nil) are disabled and faded.
+                        Button {
+                            openActivity = activity.opens
+                        } label: {
+                            ActivityCard(activity: activity)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(activity.opens == nil)
+                        .opacity(activity.opens == nil ? 0.5 : 1)
                     }
                 }
                 .padding(.horizontal, 20)
@@ -287,6 +301,12 @@ struct ActivityBrowserView: View {
         .navigationBarBackButtonHidden(true)
         .toolbar(.hidden, for: .navigationBar)
         .animation(.easeInOut(duration: 0.25), value: selected)
+        // Same screen the pause notification opens (ActivityScreen.swift).
+        .fullScreenCover(item: $openActivity) { activity in
+            ActivityScreen(activity: activity) {
+                openActivity = nil
+            }
+        }
     }
 
     private var header: some View {

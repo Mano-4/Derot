@@ -39,6 +39,9 @@ enum DerotActivity: String, CaseIterable, Identifiable {
     case scrollCheckIn
     case threeGoodThings
 
+    // Move
+    case neckReset
+
     // Identifiable lets SwiftUI lists use the activity directly.
     var id: String { rawValue }
 
@@ -55,6 +58,7 @@ enum DerotActivity: String, CaseIterable, Identifiable {
         case .makeAPlan:         "Make a Plan"
         case .scrollCheckIn:     "Scroll Check-In"
         case .threeGoodThings:   "Three Good Things"
+        case .neckReset:         "Neck Reset"
         }
     }
 
@@ -67,6 +71,8 @@ enum DerotActivity: String, CaseIterable, Identifiable {
             .breathe
         case .nameYourFeeling, .makeAPlan, .scrollCheckIn, .threeGoodThings:
             .reflect
+        case .neckReset:
+            .move
         }
     }
 }

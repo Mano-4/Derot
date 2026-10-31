@@ -30,6 +30,8 @@ struct ActivityScreen: View {
         case .makeAPlan:         MakeAPlanView(onClose: onClose)
         case .scrollCheckIn:     ScrollCheckInView(onClose: onClose)
         case .threeGoodThings:   LittleThingsKeptView(onClose: onClose)
+        // Move
+        case .neckReset:         NeckResetView(onClose: onClose)
         }
     }
 }

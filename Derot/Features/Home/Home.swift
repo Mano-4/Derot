@@ -446,9 +446,8 @@ struct MainTabView: View {
                     Label("Home", systemImage: "house")
                 }
 
-            NavigationStack {
-                ActivitiesView()
-            }
+            // Sadeem's Activity Library (Activity.swift) has its own NavigationStack.
+            ActivitiesHomeView()
                 .tabItem {
                     Label(
                         "Activity",
@@ -467,42 +466,6 @@ struct MainTabView: View {
             }
         }
         .tint(.blue)
-    }
-}
-
-
-
-// Only Find Three Things is linked for now; add the other activities here later.
-struct ActivitiesView: View {
-    @State private var showFindThreeThings = false
-
-    var body: some View {
-        List {
-            Section("Notice") {
-                Button {
-                    showFindThreeThings = true
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "eye")
-                            .frame(width: 36, height: 36)
-                            .background(Color.sunny, in: RoundedRectangle(cornerRadius: 10))
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Find Three Things")
-                                .font(.appHeadline)
-                            Label("1 min", systemImage: "clock")
-                                .font(.appCaption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .foregroundStyle(Color.ink)
-                }
-            }
-        }
-        .navigationTitle("Activities")
-        .fullScreenCover(isPresented: $showFindThreeThings) {
-            FindThreeThingsView(onClose: { showFindThreeThings = false })
-        }
     }
 }
 
