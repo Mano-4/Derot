@@ -9,24 +9,8 @@
 
 import Foundation
 
-// MARK: - ActivityCategory
-
-// The groups shown in the Activity Library (Notice, Breathe, Reflect...).
-// Move and Think are added here when their activities are ready.
-enum ActivityCategory: String, CaseIterable {
-    case notice
-    case breathe
-    case reflect
-
-    // The name people see, e.g. in "Let's try a Breathe together".
-    var title: String {
-        switch self {
-        case .notice:  "Notice"
-        case .breathe: "Breathe"
-        case .reflect: "Reflect"
-        }
-    }
-}
+// The categories (Notice, Breathe, Reflect, Move, Think) and their colors
+// live in ActivityCategory, in Features/Activity/Activity.swift (Sadeem's library).
 
 // MARK: - DerotActivity
 
