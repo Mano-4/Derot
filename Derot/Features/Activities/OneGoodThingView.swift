@@ -5,52 +5,75 @@ import UIKit
 import AppKit
 #endif
 
+@MainActor
 public struct OneGoodThingView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onSaveEntry: ((String) -> Void)?
+    private let introImageName: String
 
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onSaveEntry: ((String) -> Void)? = nil
+        onSaveEntry: ((String) -> Void)? = nil,
+        introImageName: String = "notice-good-intro"
     ) {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onSaveEntry = onSaveEntry
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, journal, complete }
+    private struct Draft: Codable, Equatable {
+        let entry: String
+    }
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "one-good-thing")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var didRestoreDraft = false
+    @State private var draftSessionEnded = false
     @State private var screen: Screen = .instructions
     @State private var entry = ""
+    @State private var showDiscardPrompt = false
+    @ScaledMetric(relativeTo: .body) private var journalHeight: CGFloat = 320
     @FocusState private var writing: Bool
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @ScaledMetric(relativeTo: .caption) private var numberBadgeSize: CGFloat = 28
 
-    private let yellow = Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    private var yellow: Color {
+        colorScheme == .dark
+            ? Color(red: 0.38, green: 0.35, blue: 0.12)
+            : Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    }
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperFill: Color {
+        colorScheme == .dark
+            ? Color(red: 0.14, green: 0.135, blue: 0.095)
+            : Color(red: 1, green: 0.99, blue: 0.95)
+    }
     private var trimmedEntry: String {
         entry.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public var body: some View {
+        NavigationStack {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                        }
-                    }
-
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .journal:
                         journal
                     case .complete:
@@ -64,18 +87,60 @@ public struct OneGoodThingView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
+        .toolbar {
+            #if os(iOS)
+            if writing {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { writing = false }
+                        .fontWeight(.semibold)
+                        .buttonStyle(.automatic)
+                }
+            }
+            #endif
+            ToolbarItem(placement: .primaryAction) {
+                if screen != .complete {
+                    Button(action: requestClose) {
+                        Image(systemName: "xmark")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.automatic)
+                    .accessibilityLabel("Close activity")
+                }
+            }
+        }
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        .interactiveDismissDisabled(screen != .complete && !trimmedEntry.isEmpty)
+        .confirmationDialog("Keep this for later?", isPresented: $showDiscardPrompt,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+            Button("Keep writing", role: .cancel) {}
+        } message: {
+            Text("Your draft stays on this device until you finish or discard it.")
+        }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) { ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction) }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: entry) { _, _ in persistDraft() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { persistDraft() }
+        }
+        .onDisappear { persistDraft() }
     }
 
     private var badge: some View {
         Label("Notice", systemImage: "eye")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(yellow, in: RoundedRectangle(cornerRadius: 6))
@@ -83,7 +148,7 @@ public struct OneGoodThingView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            GoodThingArtwork(name: "notice-good-intro")
+            GoodThingArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(yellow.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -91,35 +156,44 @@ public struct OneGoodThingView: View {
             HStack(spacing: 12) {
                 badge
                 Label("At your pace", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("One good thing")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             instruction(number: "1", text: "Think of something good, big or small")
             instruction(number: "2", text: "Write a little about it, in your own words")
 
             Spacer(minLength: 36)
-            yellowButton("Start") {
-                entry = ""
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            yellowButton(draftStore.hasDraft ? "Resume" : "Start") {
+                draftSessionEnded = false
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    entry = saved.entry
+                } else { entry = "" }
                 screen = .journal
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            Button("Pick something else", action: requestClose)
+                .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
-            Text(text).font(.system(size: 13))
+                .font(.caption)
+                .frame(width: numberBadgeSize, height: numberBadgeSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            Text(text).font(.body)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -127,27 +201,27 @@ public struct OneGoodThingView: View {
         VStack(alignment: .leading, spacing: 20) {
             badge
             Text("One good thing")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             Text("What’s one good thing you’d like to remember?")
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
 
             Text("A kind interaction, a small win, or something you’re glad is in your life.")
-                .font(.system(size: 13))
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(alignment: .leading, spacing: 10) {
                 Text("A little good")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
                     .padding(.leading, 5)
 
                 ZStack(alignment: .topLeading) {
                     if entry.isEmpty {
                         Text("It can be something small…")
-                            .font(.custom("ComingSoon-Regular", size: 22))
-                            .foregroundStyle(.secondary.opacity(0.6))
+                            .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                            .foregroundStyle(.secondary)
                             .padding(.top, 8)
                             .padding(.leading, 5)
                             .allowsHitTesting(false)
@@ -157,11 +231,11 @@ public struct OneGoodThingView: View {
                         #if os(iOS)
                         .textInputAutocapitalization(.never)
                         #endif
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                         .lineSpacing(8)
                         .scrollContentBackground(.hidden)
                         .focused($writing)
-                        .frame(height: 320)
+                        .frame(height: journalHeight)
                         .accessibilityLabel("Your one good thing")
                 }
             }
@@ -171,7 +245,7 @@ public struct OneGoodThingView: View {
             .padding(.bottom, 28)
             .background {
                 RoundedRectangle(cornerRadius: 4)
-                    .fill(Color(red: 1, green: 0.99, blue: 0.95))
+                    .fill(paperFill)
                     .overlay {
                         GoodThingPaperRules()
                             .stroke(Color(red: 0.70, green: 0.78, blue: 0.86).opacity(0.3), lineWidth: 0.7)
@@ -187,7 +261,7 @@ public struct OneGoodThingView: View {
             }
 
             Text("A few words are enough. More is welcome, too.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity)
                 .multilineTextAlignment(.center)
@@ -223,16 +297,16 @@ public struct OneGoodThingView: View {
             .frame(height: 220)
 
             Text("That matters.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
             Text("Thank you for sharing your good thing.\nBig or small, it deserves to be remembered.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
@@ -246,7 +320,10 @@ public struct OneGoodThingView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -254,6 +331,11 @@ public struct OneGoodThingView: View {
 
     private func finish() {
         guard screen == .journal, !trimmedEntry.isEmpty else { return }
+        guard (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+            draftExitAction = .complete
+            return
+        }
+        draftSessionEnded = true
         writing = false
         let finishedEntry = trimmedEntry
         screen = .complete
@@ -261,7 +343,18 @@ public struct OneGoodThingView: View {
         onComplete(10)
     }
 
+    private func requestClose() {
+        writing = false
+        if screen != .complete, !trimmedEntry.isEmpty || draftStore.hasDraft {
+            showDiscardPrompt = true
+        } else {
+            close()
+        }
+    }
+
     private func close() {
+        draftExitAction = nil
+        draftSessionEnded = true
         writing = false
         if let onClose {
             onClose()
@@ -270,6 +363,39 @@ public struct OneGoodThingView: View {
             entry = ""
             screen = .instructions
         }
+    }
+
+    private func restoreDraft() {
+        guard !didRestoreDraft else { return }
+        didRestoreDraft = true
+        if let saved = draftStore.restore() { entry = saved.entry }
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard didRestoreDraft, !draftSessionEnded, screen == .journal else { return true }
+        let saved = trimmedEntry.isEmpty ? draftStore.clearEmptyDraft() : draftStore.save(Draft(entry: entry))
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): finish()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
     }
 }
 
@@ -307,7 +433,7 @@ private struct GoodThingArtwork: View {
                 Image(systemName: "photo")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.gray.opacity(0.45))
+                    .foregroundStyle(.secondary)
                     .padding(20)
             }
         }

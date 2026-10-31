@@ -10,10 +10,13 @@ public struct FollowTheCircleView: View {
     // The team app can use these to save points and return to Home.
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    private let introImageName: String
 
-    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil) {
+    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
+                introImageName: String = "breathe-intro") {
         self.onComplete = onComplete
         self.onClose = onClose
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, breathing, complete }
@@ -21,13 +24,24 @@ public struct FollowTheCircleView: View {
     @State private var elapsed: TimeInterval = 0
     @State private var savedTime: TimeInterval = 0
     @State private var startedAt: Date? = nil
+    @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .body) private var instructionNumberSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .body) private var pauseDiameter: CGFloat = 52
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let duration: TimeInterval = 60
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-    private let blue = Color(red: 0.67, green: 0.75, blue: 0.84)
+    private var blue: Color {
+        colorScheme == .dark
+            ? Color(red: 0.55, green: 0.68, blue: 0.84)
+            : Color(red: 0.67, green: 0.75, blue: 0.84)
+    }
+    private var surface: Color {
+        colorScheme == .dark ? Color(red: 0.07, green: 0.08, blue: 0.10) : .white
+    }
     private let yellow = Color(red: 1, green: 0.90, blue: 0)
 
     private var breathingIn: Bool { elapsed.truncatingRemainder(dividingBy: 10) < 5 }
@@ -39,30 +53,40 @@ public struct FollowTheCircleView: View {
     }
 
     public var body: some View {
+        NavigationStack {
+            content
+                .toolbar {
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: close) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                    }
+                }
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+        }
+    }
+
+    private var content: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen == .breathing { categoryBadge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
+                    if screen == .breathing {
+                        categoryBadge.padding(.vertical, 8)
                     }
 
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .breathing:
-                        breathing.frame(minHeight: max(0, geometry.size.height - 56))
+                        breathing.frame(minHeight: max(0, geometry.size.height - 52))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -73,16 +97,19 @@ public struct FollowTheCircleView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        .onAppear { isOnScreen = true }
         .onReceive(ticker) { date in
-            guard screen == .breathing, let start = startedAt else { return }
-            elapsed = min(duration, savedTime + max(0, date.timeIntervalSince(start)))
+            guard isOnScreen, screen == .breathing, scenePhase == .active else { return }
+            if let start = startedAt {
+                elapsed = min(duration, savedTime + max(0, date.timeIntervalSince(start)))
+            }
+            // Pause can capture the deadline between ticks. Settle it even with no start date.
             if elapsed >= duration {
                 finish()
             }
@@ -90,20 +117,24 @@ public struct FollowTheCircleView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { pause() }
         }
-        .onDisappear { pause() }
+        .onDisappear {
+            isOnScreen = false
+            pause()
+        }
     }
 
     private var categoryBadge: some View {
         Label("Breathe", systemImage: "wind")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(blue, in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.black)
     }
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            RabbitArtwork(name: "breathe-intro")
+            RabbitArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(blue.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -111,13 +142,13 @@ public struct FollowTheCircleView: View {
             HStack(spacing: 12) {
                 categoryBadge
                 Label("1m", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Follow the circle")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             instruction(number: "1", text: "Breathe in as the circle grows")
             instruction(number: "2", text: "Breathe out as it shrinks")
@@ -126,32 +157,34 @@ public struct FollowTheCircleView: View {
 
             yellowButton("Start", action: start)
             Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
-            Text(text).font(.system(size: 13))
+                .font(.footnote)
+                .frame(width: instructionNumberSize, height: instructionNumberSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            Text(text)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var breathing: some View {
         VStack(spacing: 16) {
             Text("Follow the circle")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
 
             Spacer(minLength: 30)
 
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.black.opacity(0.045))
+                    .fill(Color.primary.opacity(0.045))
                 ZStack {
                     Circle().fill(blue)
                     RabbitArtwork(name: "breathe-circle")
@@ -167,10 +200,10 @@ public struct FollowTheCircleView: View {
             Spacer(minLength: 30)
 
             Text(startedAt == nil ? "Take your time" : (breathingIn ? "Make a little space" : "Let the tension go"))
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .multilineTextAlignment(.center)
             Text(startedAt == nil ? "Resume whenever you’re ready" : (breathingIn ? "Breathe in slowly" : "Breathe out gently"))
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -182,7 +215,7 @@ public struct FollowTheCircleView: View {
                     Spacer()
                     Text("1:00")
                 }
-                .font(.system(size: 10))
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .monospacedDigit()
             }
@@ -196,15 +229,15 @@ public struct FollowTheCircleView: View {
                 }
             } label: {
                 Image(systemName: startedAt == nil ? "play.fill" : "pause.fill")
-                    .font(.system(size: 20))
-                    .foregroundStyle(.white)
-                    .frame(width: 52, height: 52)
-                    .background(.black, in: Circle())
+                    .font(.title3)
+                    .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                    .frame(width: pauseDiameter, height: pauseDiameter)
+                    .background(colorScheme == .dark ? Color.white : Color.black, in: Circle())
             }
             .accessibilityLabel(startedAt == nil ? "Resume breathing" : "Pause breathing")
 
             Button("Finish", action: finish)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityHint("Ends the session and shows your completion screen")
         }
@@ -221,15 +254,16 @@ public struct FollowTheCircleView: View {
             }
             .frame(width: 230, height: 220)
             Text("Good job!")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             Text("Follow the circle · \(timeString(elapsed))")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
+                .foregroundStyle(.black)
 
             Spacer(minLength: 60)
 
@@ -240,13 +274,15 @@ public struct FollowTheCircleView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.black)
         }
     }
 
     private func start() {
+        isOnScreen = true
         elapsed = 0
         savedTime = 0
         startedAt = Date()
@@ -255,7 +291,7 @@ public struct FollowTheCircleView: View {
 
     private func finish() {
         // Both the timer and Finish use this guard, awarding once per session.
-        guard screen == .breathing else { return }
+        guard isOnScreen, screen == .breathing else { return }
         pause()
         screen = .complete
         onComplete(10)
@@ -269,6 +305,8 @@ public struct FollowTheCircleView: View {
     }
 
     private func close() {
+        // Cancel immediately; a queued timer tick must never award points after X.
+        isOnScreen = false
         pause()
         if let onClose {
             onClose()

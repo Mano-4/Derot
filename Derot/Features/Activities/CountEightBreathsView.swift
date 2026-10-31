@@ -8,43 +8,64 @@ import AppKit
 public struct CountEightBreathsView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    private let introImageName: String
 
-    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil) {
+    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
+                introImageName: String = "breathe-intro") {
         self.onComplete = onComplete
         self.onClose = onClose
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, counting, complete }
     @State private var screen: Screen = .instructions
     @State private var count = 0
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .body) private var instructionNumberSize: CGFloat = 28
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let blue = Color(red: 0.67, green: 0.75, blue: 0.84)
+    private var blue: Color {
+        colorScheme == .dark
+            ? Color(red: 0.55, green: 0.68, blue: 0.84)
+            : Color(red: 0.67, green: 0.75, blue: 0.84)
+    }
+    private var surface: Color {
+        colorScheme == .dark ? Color(red: 0.07, green: 0.08, blue: 0.10) : .white
+    }
     private let yellow = Color(red: 1, green: 0.90, blue: 0)
 
     public var body: some View {
+        NavigationStack {
+            content
+                .toolbar {
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: close) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                    }
+                }
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+        }
+    }
+
+    private var content: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                        }
-                    }
-
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .counting:
-                        counting.frame(minHeight: max(0, geometry.size.height - 56))
+                        counting.frame(minHeight: max(0, geometry.size.height - 12))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -55,8 +76,8 @@ public struct CountEightBreathsView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         .task(id: count) {
             guard count == 8, screen == .counting else { return }
@@ -70,35 +91,35 @@ public struct CountEightBreathsView: View {
             screen = .complete
         }
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
     }
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            CountBreathsArtwork(name: "breathe-intro")
+            CountBreathsArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(blue.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
 
             HStack(spacing: 12) {
                 Label("Breathe", systemImage: "wind")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.caption.weight(.medium))
                     .padding(.horizontal, 7)
                     .padding(.vertical, 4)
                     .background(blue, in: RoundedRectangle(cornerRadius: 6))
-                Label("1m", systemImage: "clock")
-                    .font(.system(size: 12))
+            .foregroundStyle(.black)
+                Label("At your pace", systemImage: "clock")
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("Count 8 Breaths")
-                    .font(.custom("ComingSoon-Regular", size: 34))
+                    .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 Text("Bring your attention back")
-                    .font(.system(size: 14))
+                    .font(.body)
                     .foregroundStyle(.secondary)
             }
 
@@ -111,18 +132,20 @@ public struct CountEightBreathsView: View {
                 screen = .counting
             }
             Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
-            Text(text).font(.system(size: 13))
+                .font(.footnote)
+                .frame(width: instructionNumberSize, height: instructionNumberSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            Text(text)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -135,13 +158,15 @@ public struct CountEightBreathsView: View {
                     .frame(width: 140, height: 140)
 
                 Text("\(count) of 8 breaths")
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .monospacedDigit()
                     .padding(.top, 6)
 
                 Text(count == 8 ? "A little calm, in full bloom." : "One breath, one petal.")
-                    .font(.system(size: 14))
+                    .font(.body)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 CountBreathsFlower(count: count, color: blue)
                     .frame(maxWidth: .infinity)
@@ -151,8 +176,10 @@ public struct CountEightBreathsView: View {
                     )
 
                 Text(count == 8 ? "Your flower is complete" : "Tap after each breath out")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: 24)
             }
@@ -176,15 +203,16 @@ public struct CountEightBreathsView: View {
             .frame(width: 230, height: 220)
 
             Text("Excellent!")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             Text("Count 8 breaths · 8 breaths completed")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Label("+15 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
+                .foregroundStyle(.black)
 
             Spacer(minLength: 60)
             yellowButton("Back home", action: close)
@@ -194,9 +222,10 @@ public struct CountEightBreathsView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.black)
         }
     }
 
@@ -222,11 +251,14 @@ public struct CountEightBreathsView: View {
 private struct CountBreathsFlower: View {
     let count: Int
     let color: Color
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(Color(red: 0.96, green: 0.97, blue: 1))
+                .fill(colorScheme == .dark
+                      ? Color(red: 0.12, green: 0.16, blue: 0.22)
+                      : Color(red: 0.96, green: 0.97, blue: 1))
                 .frame(width: 192, height: 192)
                 .offset(y: -25)
 
@@ -255,7 +287,9 @@ private struct CountBreathsFlower: View {
                             .fill(
                                 LinearGradient(
                                     colors: [
-                                        Color(red: 0.85, green: 0.87, blue: 0.98),
+                                        colorScheme == .dark
+                                            ? Color(red: 0.44, green: 0.53, blue: 0.72)
+                                            : Color(red: 0.85, green: 0.87, blue: 0.98),
                                         color
                                     ],
                                     startPoint: .top, endPoint: .bottom

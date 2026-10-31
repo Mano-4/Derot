@@ -6,11 +6,12 @@
 //  The random pick, the notification and the shield all read from here,
 //  so they always agree on which activities exist.
 //
+//  The Activity Library (Hessa's ActivityLibraryView) keeps its own list with
+//  images, colors and durations. When a new activity screen is added there,
+//  add it here too (and in ActivityScreen.swift) so the pause can pick it.
+//
 
 import Foundation
-
-// The categories (Notice, Breathe, Reflect, Move, Think) and their colors
-// live in ActivityCategory, in Features/Activity/Activity.swift (Sadeem's library).
 
 // MARK: - DerotActivity
 
@@ -42,6 +43,9 @@ enum DerotActivity: String, CaseIterable, Identifiable {
     // Move
     case neckReset
 
+    // Think
+    case sixWordRecall
+
     // Identifiable lets SwiftUI lists use the activity directly.
     var id: String { rawValue }
 
@@ -59,20 +63,7 @@ enum DerotActivity: String, CaseIterable, Identifiable {
         case .scrollCheckIn:     "Scroll Check-In"
         case .threeGoodThings:   "Three Good Things"
         case .neckReset:         "Neck Reset"
-        }
-    }
-
-    // Which group the activity belongs to.
-    var category: ActivityCategory {
-        switch self {
-        case .findThreeThings, .oneGoodThing, .senses54321:
-            .notice
-        case .breathingBox, .countEightBreaths, .followTheCircle:
-            .breathe
-        case .nameYourFeeling, .makeAPlan, .scrollCheckIn, .threeGoodThings:
-            .reflect
-        case .neckReset:
-            .move
+        case .sixWordRecall:     "6-Word Recall"
         }
     }
 }

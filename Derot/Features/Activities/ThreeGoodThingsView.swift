@@ -5,25 +5,33 @@ import UIKit
 import AppKit
 #endif
 
+@MainActor
 public struct LittleThingsKeptView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onSaveThings: (([String]) -> Void)?
-    private let accent: Color
+    private let preferredAccent: Color
+    private let introImageName: String
 
     public init(
         accentColor: Color = Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255),
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onSaveThings: (([String]) -> Void)? = nil
+        onSaveThings: (([String]) -> Void)? = nil,
+        introImageName: String = "three-good-things-intro"
     ) {
-        accent = accentColor
+        preferredAccent = accentColor
         self.onComplete = onComplete
         self.onClose = onClose
         self.onSaveThings = onSaveThings
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, collecting, complete }
+    private struct Draft: Codable, Equatable {
+        let things: [String]
+        let words: String
+    }
     private enum FoldPhase: Int { case flat, square, firstCrease, secondCrease, origami, mouth, landed }
     private struct FoldJob: Identifiable {
         let id = UUID()
@@ -36,6 +44,10 @@ public struct LittleThingsKeptView: View {
         let words: String
     }
 
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "little-things-kept")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var draftLoaded = false
+    @State private var sessionEnded = false
     @State private var screen: Screen = .instructions
     @State private var things: [String] = []
     @State private var draft = ""
@@ -43,7 +55,12 @@ public struct LittleThingsKeptView: View {
     @State private var foldPhase: FoldPhase = .flat
     @State private var openedThing: OpenedThing?
     @FocusState private var writing: Bool
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .footnote) private var stepMarkerSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsDiscardConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -59,25 +76,92 @@ public struct LittleThingsKeptView: View {
         Color(red: 0.56, green: 0.73, blue: 0.87)
     ]
 
+    @ScaledMetric(relativeTo: .body) private var editorHeight: CGFloat = 84
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperColor: Color {
+        colorScheme == .dark ? Color(red: 0.17, green: 0.14, blue: 0.16) : Color(red: 1, green: 0.98, blue: 0.95)
+    }
+    private var accent: Color {
+        colorScheme == .dark ? preferredAccent.opacity(0.55) : preferredAccent
+    }
+    private var badge: some View {
+        Label("Reflect", systemImage: "heart.text.square")
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(accent, in: RoundedRectangle(cornerRadius: 6))
+    }
+    private var hasUnsavedWriting: Bool {
+        screen != .complete && hasContent
+    }
+
     public var body: some View {
+        NavigationStack {
+            activityContent
+                .navigationTitle("")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+                .toolbar {
+                    #if os(iOS)
+                    if writing {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { writing = false }
+                                .fontWeight(.semibold)
+                                .buttonStyle(.automatic)
+                        }
+                    }
+                    #endif
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: requestClose) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                        ToolbarItem(placement: .principal) {
+                            if screen != .instructions { badge }
+                        }
+                    }
+                }
+        }
+        .confirmationDialog("Keep this for later?", isPresented: $showsDiscardConfirmation,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+            Button("Keep writing", role: .cancel) { }
+        } message: {
+            Text("Your draft stays on this device until you finish or discard it.")
+        }
+        .interactiveDismissDisabled(hasUnsavedWriting || draftStore.hasDraft)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction)
+        }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: draftSnapshot) { _, _ in persistDraft() }
+    }
+
+    private var activityContent: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                        }
-                    }
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .collecting:
                         collecting
                     case .complete:
@@ -100,8 +184,8 @@ public struct LittleThingsKeptView: View {
                         .opacity(hasContent ? 1 : 0.45)
 
                     if !hasContent && !isFolding {
-                        Button("Skip for now", action: close)
-                            .font(.system(size: 13))
+                        Button("Skip for now", action: requestClose)
+                            .font(.body)
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, minHeight: 44)
                     }
@@ -109,14 +193,13 @@ public struct LittleThingsKeptView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 8)
-                .background(Color.white)
+                .background(surface)
             }
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
         .task(id: pendingFold?.id) {
@@ -124,19 +207,25 @@ public struct LittleThingsKeptView: View {
             await animateFold(job)
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase != .active { cancelFold() }
+            if phase != .active {
+                cancelFold()
+                persistDraft()
+            }
         }
-        .onDisappear { cancelFold() }
+        .onDisappear {
+            cancelFold()
+            persistDraft()
+        }
         .sheet(item: $openedThing) { thing in
             VStack(spacing: 20) {
                 OrigamiKeepsake(kind: thing.id % 5, color: colors[thing.id % colors.count])
                     .frame(width: 54, height: 48)
                     .padding(.top, 18)
                 Text("A moment you kept")
-                    .font(.custom("ComingSoon-Regular", size: 28))
+                    .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 ScrollView {
                     Text(thing.words)
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, 20)
@@ -153,27 +242,37 @@ public struct LittleThingsKeptView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            GoodThingsArtwork(name: "three-good-things-intro")
+            GoodThingsArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(accent.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
             Label("At your pace", systemImage: "clock")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.top, 8)
             Text("Little Things, Kept")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             instruction("1", "Think of something you’re glad is in your day or life")
             instruction("2", "Fold it into a keepsake. Gather up to ten.")
             Spacer(minLength: 36)
-            primaryButton("Start") {
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            primaryButton(draftStore.hasDraft ? "Resume" : "Start") {
+                sessionEnded = false
                 cancelFold()
-                things = []
-                draft = ""
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    applySavedDraft(saved)
+                } else {
+                    things = []
+                    draft = ""
+                }
                 screen = .collecting
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            Button("Pick something else", action: requestClose)
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
@@ -181,11 +280,11 @@ public struct LittleThingsKeptView: View {
     private func instruction(_ number: String, _ text: String) -> some View {
         HStack(spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.footnote)
+                .frame(width: stepMarkerSize, height: stepMarkerSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13))
+                .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -193,12 +292,12 @@ public struct LittleThingsKeptView: View {
     private var collecting: some View {
         VStack(spacing: 14) {
             Text("Little Things, Kept")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .padding(.top, 6)
 
             if things.count < maximumThings {
                 Text("What’s something you’re glad to have?")
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 6)
@@ -214,7 +313,7 @@ public struct LittleThingsKeptView: View {
                 .opacity(cleanDraft.isEmpty && !isFolding ? 0.45 : 1)
             } else {
                 Text("Your jar is full.")
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .foregroundStyle(.secondary)
             }
 
@@ -271,8 +370,8 @@ public struct LittleThingsKeptView: View {
         ZStack(alignment: .topLeading) {
             if draft.isEmpty {
                 Text("A person, a moment, something small…")
-                    .font(.custom("ComingSoon-Regular", size: 22))
-                    .foregroundStyle(.secondary.opacity(0.55))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                    .foregroundStyle(.secondary)
                     .padding(.top, 8)
                     .padding(.leading, 5)
                     .allowsHitTesting(false)
@@ -281,17 +380,17 @@ public struct LittleThingsKeptView: View {
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 #endif
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .scrollContentBackground(.hidden)
                 .focused($writing)
-                .frame(height: 84)
+                .frame(height: editorHeight)
                 .disabled(isFolding)
                 .accessibilityLabel("Something you’re grateful for")
         }
         .padding(16)
         .background {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(red: 1, green: 0.98, blue: 0.95))
+                .fill(paperColor)
                 .shadow(color: .black.opacity(0.055), radius: 10, y: 5)
                 .overlay(alignment: .topTrailing) {
                     Path { path in
@@ -346,14 +445,14 @@ public struct LittleThingsKeptView: View {
         VStack(spacing: 22) {
             Spacer(minLength: 28)
             Text("These little things count.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
             jarDisplay
             Text("Moments worth keeping.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
             Text("Tap a keepsake to revisit your words.")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Spacer(minLength: 36)
             primaryButton("Back home", action: close)
@@ -364,7 +463,7 @@ public struct LittleThingsKeptView: View {
     private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(accent, in: RoundedRectangle(cornerRadius: 14))
         }
@@ -439,14 +538,79 @@ public struct LittleThingsKeptView: View {
     }
 
     private func completeSession() {
-        guard screen == .collecting, !isFolding, (1...maximumThings).contains(things.count) else { return }
+        guard screen == .collecting, !isFolding, (1...maximumThings).contains(things.count),
+              (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+            draftExitAction = .complete
+            return
+        }
+        sessionEnded = true
         writing = false
         screen = .complete
         onSaveThings?(things)
         onComplete(10)
     }
 
+    private func requestClose() {
+        writing = false
+        cancelFold()
+        if screen != .complete && (hasUnsavedWriting || draftStore.hasDraft) {
+            showsDiscardConfirmation = true
+        } else {
+            close()
+        }
+    }
+
+    private var draftSnapshot: Draft {
+        // A pending animation never becomes a saved keepsake until it lands.
+        Draft(things: things, words: draft)
+    }
+
+    private func restoreDraft() {
+        guard !draftLoaded else { return }
+        draftLoaded = true
+        guard let saved = draftStore.restore() else { return }
+        applySavedDraft(saved)
+    }
+
+    private func applySavedDraft(_ saved: Draft) {
+        things = Array(saved.things.filter {
+            !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }.prefix(maximumThings))
+        draft = things.count < maximumThings ? saved.words : ""
+        cancelFold()
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard draftLoaded, !sessionEnded, screen == .collecting else { return true }
+        let saved = hasContent ? draftStore.save(draftSnapshot) : draftStore.clearEmptyDraft()
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        cancelFold()
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): completeSession()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
+    }
+
     private func close() {
+        draftExitAction = nil
+        sessionEnded = true
         cancelFold()
         writing = false
         openedThing = nil
@@ -455,8 +619,10 @@ public struct LittleThingsKeptView: View {
         } else {
             dismiss()
             screen = .instructions
-            things = []
-            draft = ""
+            if !draftStore.hasDraft {
+                things = []
+                draft = ""
+            }
         }
     }
 }
@@ -472,6 +638,10 @@ private struct KeepsakeAnchors: PreferenceKey {
 
 // The paper has two separate hinged flaps. It does not just shrink the editor.
 private struct FoldingKeepsake: View {
+    @Environment(\.colorScheme) private var colorScheme
+    private var paperColor: Color {
+        colorScheme == .dark ? Color(red: 0.19, green: 0.16, blue: 0.18) : Color(red: 1, green: 0.98, blue: 0.95)
+    }
     let color: Color
     let kind: Int
     let phase: Int
@@ -480,10 +650,10 @@ private struct FoldingKeepsake: View {
     var body: some View {
         ZStack {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(red: 1, green: 0.98, blue: 0.95))
+                .fill(paperColor)
                 .overlay(alignment: .topLeading) {
                     Text(words)
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                         .lineLimit(3)
                         .padding(16)
                 }
@@ -491,17 +661,17 @@ private struct FoldingKeepsake: View {
 
             ZStack {
                 FoldTriangle(lower: false)
-                    .fill(Color(red: 1, green: 0.98, blue: 0.94))
+                    .fill(paperColor)
                     .overlay {
                         Text(words)
-                            .font(.custom("ComingSoon-Regular", size: 14))
+                            .font(.custom("ComingSoon-Regular", size: 14, relativeTo: .footnote))
                             .lineLimit(3)
                             .padding(10)
                             .clipShape(FoldTriangle(lower: false))
                     }
 
                 FoldTriangle(lower: true)
-                    .fill(phase >= 2 ? color.opacity(0.9) : Color(red: 1, green: 0.98, blue: 0.94))
+                    .fill(phase >= 2 ? color.opacity(0.9) : paperColor)
                     .overlay {
                         FoldTriangle(lower: true).stroke(color.opacity(0.3), lineWidth: 0.7)
                     }

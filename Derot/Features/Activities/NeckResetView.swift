@@ -12,13 +12,16 @@ public struct NeckResetView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onFinish: (() -> Void)?
+    private let introImageName: String
 
     public init(onComplete: @escaping (Int) -> Void = { _ in },
                 onClose: (() -> Void)? = nil,
-                onFinish: (() -> Void)? = nil) {
+                onFinish: (() -> Void)? = nil,
+                introImageName: String = "move-neck-intro") {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onFinish = onFinish
+        self.introImageName = introImageName
     }
 
     private enum Stage: Equatable { case introduction, meetRabbit, practice, complete }
@@ -29,18 +32,35 @@ public struct NeckResetView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var numberSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .body) private var timerMinimumHeight: CGFloat = 64
 
-    private let green = Color(red: 174 / 255, green: 197 / 255, blue: 109 / 255)
+    private var green: Color {
+        colorScheme == .dark
+            ? Color(red: 0.28, green: 0.36, blue: 0.13)
+            : Color(red: 174 / 255, green: 197 / 255, blue: 109 / 255)
+    }
+    private var surface: Color {
+        #if canImport(UIKit)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
     private let ticker = Timer.publish(every: 1.0 / 30, on: .main, in: .common).autoconnect()
     private var isPracticing: Bool { stage == .practice }
     private var movement: NeckResetMovement { guide.movement }
     private var now: TimeInterval { ProcessInfo.processInfo.systemUptime }
 
     public var body: some View {
+        NavigationStack {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if stage != .complete { topBar }
                     Group {
                         switch stage {
                         case .introduction: introduction
@@ -49,7 +69,7 @@ public struct NeckResetView: View {
                         case .complete: completion.transition(.opacity)
                         }
                     }
-                    .frame(minHeight: max(0, geometry.size.height - (stage == .complete ? 12 : 56)))
+                    .frame(minHeight: max(0, geometry.size.height - 12))
                 }
                 .frame(maxWidth: 520)
                 .frame(maxWidth: .infinity)
@@ -59,13 +79,29 @@ public struct NeckResetView: View {
             .scrollIndicators(.hidden)
         }
         .safeAreaInset(edge: .bottom, spacing: 0) { controls }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
+        .toolbar {
+            if stage != .complete {
+                if stage != .introduction {
+                    ToolbarItem(placement: .principal) { badge }
+                }
+                ToolbarItem(placement: .primaryAction) {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .accessibilityLabel("Close activity")
+                    .buttonStyle(.automatic)
+                }
+            }
+        }
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
+        .toolbar(stage == .complete ? .hidden : .visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        }
         .onAppear { isOnScreen = true }
         .onReceive(ticker) { _ in
             guard isOnScreen, isPracticing, !hasFinished, scenePhase == .active else { return }
@@ -90,25 +126,9 @@ public struct NeckResetView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .light))
-                    .frame(width: 44, height: 44)
-                    .contentShape(Rectangle())
-            }
-            .accessibilityLabel("Close activity")
-            Spacer()
-            if stage != .introduction { badge }
-            Spacer()
-            Color.clear.frame(width: 44, height: 44)
-        }
-    }
-
     private var badge: some View {
         Label("Move", systemImage: "figure.walk")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(green, in: RoundedRectangle(cornerRadius: 6))
@@ -116,32 +136,28 @@ public struct NeckResetView: View {
 
     private var introduction: some View {
         VStack(alignment: .leading, spacing: 18) {
-            // Replace this symbol with your own transparent intro illustration later.
-            Image(systemName: "photo")
-                .font(.system(size: 44, weight: .light))
-                .foregroundStyle(green.opacity(0.8))
+            NeckResetIntroArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(green.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
-                .accessibilityLabel("Activity illustration placeholder")
 
             HStack(spacing: 12) {
                 badge
                 Text("Four gentle holds")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Neck Reset")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             instruction("1", "Sit comfortably. Let your shoulders relax.")
             instruction("2", "Follow Mr. Rabbit as he looks and tilts to each side.")
             instruction("3", "Aim for ten seconds per hold. Pause or move on whenever you’re ready.")
 
             Text("Keep every movement small and comfortable. Stop if you feel pain or dizziness.")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -153,11 +169,11 @@ public struct NeckResetView: View {
     private func instruction(_ number: String, _ text: String) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.footnote)
+                .frame(width: numberSize, height: numberSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13))
+                .font(.body)
                 .frame(minHeight: 28, alignment: .leading)
                 .fixedSize(horizontal: false, vertical: true)
         }
@@ -166,7 +182,7 @@ public struct NeckResetView: View {
     private var meetRabbit: some View {
         VStack(spacing: 16) {
             Text("Neck Reset")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
 
@@ -175,36 +191,29 @@ public struct NeckResetView: View {
                 .frame(maxWidth: 340)
                 .frame(height: 260)
             Text("Follow Mr. Rabbit")
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .multilineTextAlignment(.center)
-            Text("Move gently with him.")
-                .font(.system(size: 13))
+            Text("Get comfortable. Start when you’re ready.")
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             Spacer(minLength: 20)
-        }
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
-            do { try await Task.sleep(for: .seconds(2)) }
-            catch { return }
-            guard !Task.isCancelled, stage == .meetRabbit, scenePhase == .active else { return }
-            beginPractice()
         }
     }
 
     private var practice: some View {
         VStack(spacing: 8) {
             Text("Neck Reset")
-                .font(.system(size: 12, weight: .medium))
+                .font(.footnote.weight(.medium))
                 .foregroundStyle(.secondary)
                 .padding(.top, 12)
 
             Text(movement.shortTitle)
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
 
             Text(phaseInstruction)
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 44)
@@ -230,27 +239,30 @@ public struct NeckResetView: View {
         Group {
             if guide.phase == .holding || guide.phase == .ready {
                 VStack(spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
+                    let layout = dynamicTypeSize.isAccessibilitySize
+                        ? AnyLayout(VStackLayout(spacing: 2))
+                        : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 7))
+                    layout {
                         Text("\(guide.secondsRemaining)")
-                            .font(.custom("ComingSoon-Regular", size: 34))
+                            .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                             .monospacedDigit()
                         Text("seconds")
-                            .font(.system(size: 12))
+                            .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
                     Text(guide.isPaused ? "Paused" : (guide.phase == .ready ? "Hold complete" : "Hold gently"))
-                        .font(.system(size: 11))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("\(guide.secondsRemaining) seconds remaining\(guide.isPaused ? ", paused" : "")")
             } else {
                 Text(guide.isPaused ? "Paused" : "Move gently")
-                    .font(.custom("ComingSoon-Regular", size: 16))
+                    .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                     .foregroundStyle(.secondary)
             }
         }
-        .frame(height: 64)
+        .frame(minHeight: timerMinimumHeight)
     }
 
     private var phaseInstruction: String {
@@ -268,7 +280,7 @@ public struct NeckResetView: View {
             Spacer(minLength: 28)
 
             Text("A little time for you.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
 
             NeckResetDrawing(movement: .lookRight, amount: 0, showsArrow: false)
@@ -276,14 +288,14 @@ public struct NeckResetView: View {
                 .accessibilityHidden(true)
 
             Text("You gave your body a moment.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 280)
                 .fixedSize(horizontal: false, vertical: true)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(green.opacity(0.45), in: Capsule())
@@ -296,12 +308,15 @@ public struct NeckResetView: View {
         VStack(spacing: 4) {
             switch stage {
             case .practice:
-                HStack(spacing: 12) {
+                let layout = dynamicTypeSize.isAccessibilitySize
+                    ? AnyLayout(VStackLayout(spacing: 12))
+                    : AnyLayout(HStackLayout(spacing: 12))
+                layout {
                     Button(guide.isPaused ? "Continue" : "Pause") {
                         if guide.isPaused { guide.resume(at: now, reduceMotion: reduceMotion) }
                         else { guide.pause(at: now, reduceMotion: reduceMotion) }
                     }
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.headline)
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .background(green.opacity(0.16), in: RoundedRectangle(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).stroke(green.opacity(0.4), lineWidth: 1))
@@ -312,16 +327,16 @@ public struct NeckResetView: View {
                 .disabled(hasFinished)
 
                 Button("End early", action: endEarly)
-                    .font(.system(size: 13))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 44)
                     .disabled(hasFinished)
             case .meetRabbit:
-                primaryButton("Begin now", action: beginPractice)
+                primaryButton("I’m ready", action: beginPractice)
             case .introduction:
-                primaryButton("Start", action: showRabbit)
+                primaryButton("Continue", action: showRabbit)
                 Button("Pick something else", action: close)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.body.weight(.medium))
                     .frame(maxWidth: .infinity, minHeight: 44)
             case .complete:
                 primaryButton("Back home", action: close)
@@ -331,13 +346,13 @@ public struct NeckResetView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
-        .background(.white)
+        .background(surface)
     }
 
     private func primaryButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.headline)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(green, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -385,6 +400,34 @@ public struct NeckResetView: View {
         hasFinished = false
         if let onClose { onClose() }
         else { dismiss() }
+    }
+}
+
+@MainActor
+private struct NeckResetIntroArtwork: View {
+    let name: String
+
+    private var exists: Bool {
+        #if canImport(UIKit)
+        UIImage(named: name) != nil
+        #elseif canImport(AppKit)
+        NSImage(named: name) != nil
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        Group {
+            if exists {
+                Image(name).resizable().scaledToFit()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: 44, weight: .light))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .accessibilityHidden(true)
     }
 }
 
@@ -588,13 +631,13 @@ public struct NeckResetAnimationView: View {
     private func instructionText(returning: Bool) -> some View {
         VStack(spacing: 10) {
             Text(!isAnimating ? "Take a moment." : (returning ? "Take your time." : movement.cue))
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: .infinity, minHeight: 60)
                 .fixedSize(horizontal: false, vertical: true)
             Text(!isAnimating ? "Continue whenever you’re ready." :
                     (returning ? "Let your head rest before the next movement." : movement.detail))
-                .font(.system(size: 13))
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -715,7 +758,7 @@ private struct NeckResetDrawing: View {
             Text("Rabbit artwork is missing")
                 .font(.system(size: 14, weight: .medium))
             Text("Add NeckResetAssets.xcassets from the download to your app target.")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
             #endif

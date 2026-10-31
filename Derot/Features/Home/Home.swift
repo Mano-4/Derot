@@ -446,8 +446,8 @@ struct MainTabView: View {
                     Label("Home", systemImage: "house")
                 }
 
-            // Sadeem's Activity Library (Activity.swift) has its own NavigationStack.
-            ActivitiesHomeView()
+            // Hessa's Activity Library (Features/Activities) has its own NavigationStack.
+            ActivityLibraryView()
                 .tabItem {
                     Label(
                         "Activity",

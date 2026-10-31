@@ -1,25 +1,31 @@
 import SwiftUI
 #if os(iOS)
 import UIKit
-import AVFoundation
 #elseif canImport(AppKit)
 import AppKit
 #endif
 
+@MainActor
 public struct FindThreeThingsView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onChoosePhotos: ((String) -> Void)?
+    private let introImageName: String
+    private let onSaveAnswers: ((String, [String]) -> Void)?
 
-    // Pass onChoosePhotos to replace the built-in camera flow with your own.
+    // The team can attach its own photo flow here. No camera code lives in this view.
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onChoosePhotos: ((String) -> Void)? = nil
+        onChoosePhotos: ((String) -> Void)? = nil,
+        introImageName: String = "notice-blue-intro",
+        onSaveAnswers: ((String, [String]) -> Void)? = nil
     ) {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onChoosePhotos = onChoosePhotos
+        self.introImageName = introImageName
+        self.onSaveAnswers = onSaveAnswers
     }
 
     private enum RainbowColor: String, CaseIterable {
@@ -40,50 +46,61 @@ public struct FindThreeThingsView: View {
 
     private enum Screen { case instructions, activity, complete }
     private enum Mode { case writing, photos }
+    private struct Draft: Codable, Equatable {
+        let color: String
+        let answers: [String]
+    }
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "find-three-things")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var didRestoreDraft = false
+    @State private var draftSessionEnded = false
     @State private var screen: Screen = .instructions
     @State private var mode: Mode = .writing
     @State private var answers = ["", "", ""]
-    // One optional photo per slot; nil means the slot is still empty.
-    @State private var photos: [Image?] = [nil, nil, nil]
-    // Camera state: whether the camera screen is open, and which slot (0, 1 or 2) the next photo goes into.
-    @State private var showCamera = false
-    @State private var cameraSlot = 0
-    @State private var showCameraDenied = false
-    @State private var showCameraUnavailable = false
+    @State private var showDiscardPrompt = false
     @State private var selectedColor: RainbowColor = RainbowColor.allCases.randomElement() ?? .blue
     @FocusState private var focusedLine: Int?
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var numberBadgeSize: CGFloat = 28
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let yellow = Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    private var yellow: Color {
+        colorScheme == .dark
+            ? Color(red: 0.38, green: 0.35, blue: 0.12)
+            : Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    }
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperFill: Color {
+        colorScheme == .dark
+            ? Color(red: 0.14, green: 0.135, blue: 0.095)
+            : Color(red: 1, green: 0.99, blue: 0.95)
+    }
     private var completedCount: Int {
         answers.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }.count
     }
-    private var photoCount: Int {
-        photos.filter { $0 != nil }.count
-    }
 
     public var body: some View {
+        NavigationStack {
         GeometryReader { geometry in
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
-                    if screen != .complete {
-                        Button(action: close) {
-                            Image(systemName: "xmark")
-                                .font(.system(size: 15, weight: .light))
-                                .frame(width: 44, height: 44)
-                                .contentShape(Rectangle())
-                        }
-                        .accessibilityLabel("Close activity")
-                    }
-
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .activity:
-                        // Fills the screen so photo mode can keep its buttons at the bottom.
-                        activity.frame(minHeight: max(0, geometry.size.height - 56), alignment: .top)
+                        activity
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -95,37 +112,60 @@ public struct FindThreeThingsView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
-        #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
-        // Shows Apple's camera full screen when showCamera becomes true.
-        // CameraPicker closes itself after a photo is taken or the user cancels.
-        .fullScreenCover(isPresented: $showCamera) {
-            CameraPicker { uiImage in
-                photos[cameraSlot] = Image(uiImage: uiImage)
+        .toolbar {
+            #if os(iOS)
+            if focusedLine != nil {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button("Done") { focusedLine = nil }
+                        .fontWeight(.semibold)
+                        .buttonStyle(.automatic)
+                }
             }
-            .ignoresSafeArea()
+            #endif
+            ToolbarItem(placement: .primaryAction) {
+                if screen != .complete {
+                    Button(action: requestClose) {
+                        Image(systemName: "xmark")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.automatic)
+                    .accessibilityLabel("Close activity")
+                }
+            }
         }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+        .toolbar(.hidden, for: .tabBar)
         #endif
-        .alert("Camera access is off", isPresented: $showCameraDenied) {
-            Button("Open Settings", action: openSettings)
-            Button("Not now", role: .cancel) {}
+        .interactiveDismissDisabled(screen != .complete && completedCount > 0)
+        .confirmationDialog("Keep this for later?", isPresented: $showDiscardPrompt,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+            Button("Keep writing", role: .cancel) {}
         } message: {
-            Text("Allow camera access in Settings to snap your three things, or write them instead.")
+            Text("Your draft stays on this device until you finish or discard it.")
         }
-        .alert("No camera found", isPresented: $showCameraUnavailable) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("This device doesn't have a camera. You can write your three things instead.")
         }
+        .safeAreaInset(edge: .top, spacing: 0) { ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction) }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: answers) { _, _ in persistDraft() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { persistDraft() }
+        }
+        .onDisappear { persistDraft() }
     }
 
     private var badge: some View {
         Label("Notice", systemImage: "eye")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(yellow, in: RoundedRectangle(cornerRadius: 6))
@@ -133,15 +173,15 @@ public struct FindThreeThingsView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            NoticeBlueArtwork(name: "notice-blue-intro")
+            NoticeBlueArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(yellow.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
 
             HStack(spacing: 12) {
                 badge
-                Label("1m", systemImage: "clock")
-                    .font(.system(size: 12))
+                Label("At your pace", systemImage: "clock")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
@@ -152,20 +192,30 @@ public struct FindThreeThingsView: View {
             instruction(number: "2", text: "Write all three, or choose photos")
 
             Spacer(minLength: 36)
-            yellowButton("Start") {
-                answers = ["", "", ""]
-                photos = [nil, nil, nil]
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            yellowButton(draftStore.hasDraft ? "Resume" : "Start") {
+                draftSessionEnded = false
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    applySavedDraft(saved)
+                } else { answers = ["", "", ""] }
                 mode = .writing
                 screen = .activity
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            Button("Pick something else", action: requestClose)
+                .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private var activityTitle: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 7))
+        return layout {
             Text("3")
             Text(selectedColor.rawValue)
                 .padding(.horizontal, 5)
@@ -205,19 +255,20 @@ public struct FindThreeThingsView: View {
                 }
             Text("things")
         }
-        .font(.custom("ComingSoon-Regular", size: 34))
-        .foregroundStyle(.black)
+        .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
+        .foregroundStyle(.primary)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("3 \(selectedColor.rawValue) things")
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
-            Text(text).font(.system(size: 13))
+                .font(.caption)
+                .frame(width: numberBadgeSize, height: numberBadgeSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            Text(text).font(.body)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -229,10 +280,10 @@ public struct FindThreeThingsView: View {
             if mode == .writing {
                 HStack {
                     Text("One thing on each line")
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     Spacer(minLength: 4)
                     Text("\(completedCount) of 3")
-                        .font(.system(size: 12))
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize()
                 }
@@ -241,14 +292,14 @@ public struct FindThreeThingsView: View {
 
                 VStack(spacing: 10) {
                     Text("Would you like to snap it instead?")
-                        .font(.custom("ComingSoon-Regular", size: 18))
+                        .font(.custom("ComingSoon-Regular", size: 18, relativeTo: .body))
                         .multilineTextAlignment(.center)
                     Button {
                         focusedLine = nil
                         mode = .photos
                     } label: {
                         Label("Use photos instead", systemImage: "camera")
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.headline)
                             .padding(.horizontal, 20)
                             .frame(minHeight: 44)
                             .background(yellow.opacity(0.4), in: Capsule())
@@ -273,25 +324,25 @@ public struct FindThreeThingsView: View {
                 VStack(spacing: 0) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         Text("\(index + 1).")
-                            .font(.custom("ComingSoon-Regular", size: 22))
+                            .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                             .foregroundStyle(.secondary)
-                            .frame(width: 25, alignment: .leading)
+                        .frame(minWidth: numberBadgeSize, alignment: .leading)
 
                         TextField("Something \(selectedColor.rawValue)…", text: $answers[index], axis: .vertical)
-                            .font(.custom("ComingSoon-Regular", size: 22))
-                            .lineLimit(1...3)
+                            .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                            .lineLimit(1...6)
                             .focused($focusedLine, equals: index)
                             .submitLabel(index == 2 ? .done : .next)
                             .onSubmit {
                                 focusedLine = index < 2 ? index + 1 : nil
                             }
                             .accessibilityLabel("\(selectedColor.rawValue.capitalized) thing \(index + 1)")
-                            .frame(maxWidth: .infinity, minHeight: 42, alignment: .leading)
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
 
                         if !answers[index].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && focusedLine != index {
                             Image(systemName: "checkmark")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Color(red: 0.44, green: 0.56, blue: 0.35))
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(colorScheme == .dark ? Color(red: 0.65, green: 0.78, blue: 0.52) : Color(red: 0.32, green: 0.42, blue: 0.23))
                                 .transition(.scale(scale: 0.6).combined(with: .opacity))
                                 .accessibilityLabel("Noticed")
                         }
@@ -314,7 +365,7 @@ public struct FindThreeThingsView: View {
         .padding(.bottom, 32)
         .background {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(red: 1, green: 0.99, blue: 0.95))
+                .fill(paperFill)
                 .overlay(alignment: .leading) {
                     Rectangle()
                         .fill(Color.pink.opacity(0.18))
@@ -326,149 +377,38 @@ public struct FindThreeThingsView: View {
         }
         .overlay {
             RoundedRectangle(cornerRadius: 4)
-                .stroke(.black.opacity(0.04), lineWidth: 1)
+                .stroke(Color.primary.opacity(0.1), lineWidth: 1)
         }
-    }
-
-    private var nextEmptySlot: Int? {
-        photos.firstIndex { $0 == nil }
     }
 
     private var photoChoice: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Three things, three photos")
-                    .font(.custom("ComingSoon-Regular", size: 22))
-                Spacer(minLength: 4)
-                Text("\(photoCount) of 3")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-            }
-
-            Text(nextEmptySlot.map { "Snap something \(selectedColor.rawValue) for photo \($0 + 1)" }
-                 ?? "All three found. Lovely noticing!")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-
-            HStack(spacing: 12) {
-                ForEach(0..<3, id: \.self) { index in
-                    photoSlot(index)
-                }
-            }
-
-            // Pushes the buttons to the bottom of the screen, above the home indicator.
-            Spacer(minLength: 24)
-
-            VStack(spacing: 4) {
-                if photoCount == 3 {
-                    yellowButton("Finish", action: finish)
-                } else {
-                    yellowButton("Take photos", action: takePhoto)
-                }
-
-                Button("Write them instead") { mode = .writing }
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(maxWidth: .infinity, minHeight: 44)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private func photoSlot(_ index: Int) -> some View {
-        let isNext = index == nextEmptySlot
-
-        return RoundedRectangle(cornerRadius: 12)
-            .fill(yellow.opacity(isNext ? 0.4 : 0.25))
-            .aspectRatio(3 / 4, contentMode: .fit)
-            .overlay {
-                if let photo = photos[index] {
-                    photo
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    VStack(spacing: 10) {
+        VStack(spacing: 18) {
+            Text("Three things, three photos")
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: dynamicTypeSize.isAccessibilitySize ? 1 : 3), spacing: 12) {
+                ForEach(1..<4, id: \.self) { number in
+                    VStack(spacing: 12) {
                         Image(systemName: "camera")
-                            .font(.system(size: 22, weight: .light))
-                        Text("Photo \(index + 1)")
-                            .font(.system(size: 12))
+                            .font(.system(size: 24, weight: .light))
+                        Text("Photo \(number)")
+                            .font(.caption)
                     }
-                    .foregroundStyle(isNext ? .black : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .frame(minHeight: 120)
+                    .background(yellow.opacity(0.25), in: RoundedRectangle(cornerRadius: 12))
                 }
             }
-            .clipShape(RoundedRectangle(cornerRadius: 12))
-            .overlay(alignment: .topTrailing) {
-                if photos[index] != nil {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background(Color(red: 0.44, green: 0.56, blue: 0.35), in: Circle())
-                        .padding(6)
-                }
-            }
-            .overlay {
-                if isNext {
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(.black.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                }
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(photos[index] == nil ? "Photo \(index + 1), not taken yet" : "Photo \(index + 1), taken")
-    }
 
-    // Runs when the user taps "Take photos".
-    // It checks for a camera and for permission before opening the camera.
-    private func takePhoto() {
-        if let onChoosePhotos {
-            onChoosePhotos(selectedColor.rawValue)
-            return
-        }
-        // The photo always goes into the first empty slot.
-        guard let slot = nextEmptySlot else { return }
+            // Your friend supplies this callback to open her three-photo flow.
+            yellowButton("Take photos") { onChoosePhotos?(selectedColor.rawValue) }
+                .disabled(onChoosePhotos == nil)
+                .opacity(onChoosePhotos == nil ? 0.45 : 1)
 
-        #if os(iOS)
-        // Step 1: does this device have a camera at all?
-        guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
-            showCameraUnavailable = true
-            return
+            Button("Write them instead") { mode = .writing }
+                .font(.headline)
+                .frame(minHeight: 44)
         }
-        // Step 2: has the user allowed Derot to use the camera?
-        // (The text in the iOS permission popup comes from NSCameraUsageDescription in Info.plist.)
-        switch AVCaptureDevice.authorizationStatus(for: .video) {
-        case .authorized:
-            // Already allowed: open the camera.
-            openCamera(for: slot)
-        case .notDetermined:
-            // Never asked yet: iOS shows its permission popup and waits for the answer.
-            Task {
-                if await AVCaptureDevice.requestAccess(for: .video) {
-                    openCamera(for: slot)
-                } else {
-                    showCameraDenied = true
-                }
-            }
-        default:
-            // Denied (or blocked by Screen Time): explain how to turn it on in Settings.
-            showCameraDenied = true
-        }
-        #else
-        showCameraUnavailable = true
-        #endif
-    }
-
-    // Remembers which slot to fill, then opens the camera (see .fullScreenCover in body).
-    private func openCamera(for slot: Int) {
-        cameraSlot = slot
-        showCamera = true
-    }
-
-    private func openSettings() {
-        #if os(iOS)
-        if let url = URL(string: UIApplication.openSettingsURLString) {
-            openURL(url)
-        }
-        #endif
+        .frame(maxWidth: .infinity)
     }
 
     private var completion: some View {
@@ -483,13 +423,13 @@ public struct FindThreeThingsView: View {
             .frame(width: 230, height: 220)
 
             Text("Lovely noticing!")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
             Text("3 \(selectedColor.rawValue) things · all found")
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
@@ -503,32 +443,95 @@ public struct FindThreeThingsView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
         }
     }
 
     private func finish() {
-        let isDone = mode == .writing ? completedCount == 3 : photoCount == 3
-        guard screen == .activity, isDone else { return }
+        guard screen == .activity, mode == .writing, completedCount == 3 else { return }
+        guard (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+            draftExitAction = .complete
+            return
+        }
+        draftSessionEnded = true
         focusedLine = nil
         screen = .complete
+        onSaveAnswers?(selectedColor.rawValue,
+                       answers.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
         onComplete(10)
     }
 
+    private func requestClose() {
+        focusedLine = nil
+        if screen != .complete, completedCount > 0 || draftStore.hasDraft {
+            showDiscardPrompt = true
+        } else {
+            close()
+        }
+    }
+
     private func close() {
+        draftExitAction = nil
+        draftSessionEnded = true
         focusedLine = nil
         if let onClose {
             onClose()
         } else {
             dismiss()
-            answers = ["", "", ""]
-            photos = [nil, nil, nil]
+            if !draftStore.hasDraft {
+                answers = ["", "", ""]
+                selectedColor = RainbowColor.allCases.randomElement() ?? .blue
+            }
             mode = .writing
-            selectedColor = RainbowColor.allCases.randomElement() ?? .blue
             screen = .instructions
         }
+    }
+
+    private func restoreDraft() {
+        guard !didRestoreDraft else { return }
+        didRestoreDraft = true
+        guard let saved = draftStore.restore() else { return }
+        applySavedDraft(saved)
+    }
+
+    private func applySavedDraft(_ saved: Draft) {
+        guard let color = RainbowColor(rawValue: saved.color), saved.answers.count == 3 else { return }
+        selectedColor = color
+        answers = saved.answers
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard didRestoreDraft, !draftSessionEnded, screen == .activity else { return true }
+        let saved = completedCount > 0
+            ? draftStore.save(Draft(color: selectedColor.rawValue, answers: answers))
+            : draftStore.clearEmptyDraft()
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): finish()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
     }
 }
 
@@ -644,7 +647,7 @@ private struct NoticeBlueArtwork: View {
                 Image(systemName: "photo")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.gray.opacity(0.45))
+                    .foregroundStyle(.secondary)
                     .padding(20)
             }
         }

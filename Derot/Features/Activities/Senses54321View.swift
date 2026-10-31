@@ -9,10 +9,13 @@ import AppKit
 public struct HereAndNowView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    private let introImageName: String
 
-    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil) {
+    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
+                introImageName: String = "notice-senses-intro") {
         self.onComplete = onComplete
         self.onClose = onClose
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, noticing, complete }
@@ -51,36 +54,38 @@ public struct HereAndNowView: View {
     @State private var step = 0
     @State private var noticed = 0
     @State private var cardPulse = false
+    @ScaledMetric(relativeTo: .title2) private var counterHeight: CGFloat = 110
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .caption) private var numberBadgeSize: CGFloat = 28
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let yellow = Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    private var yellow: Color {
+        colorScheme == .dark
+            ? Color(red: 0.38, green: 0.35, blue: 0.12)
+            : Color(red: 250 / 255, green: 235 / 255, blue: 107 / 255)
+    }
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
     private var current: Sense { senses[step] }
 
     public var body: some View {
+        NavigationStack {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen == .noticing { badge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
-                    }
-
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .noticing:
-                        noticing.frame(minHeight: max(0, geometry.size.height - 56))
+                        noticing.frame(minHeight: max(0, geometry.size.height - 12))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -91,18 +96,35 @@ public struct HereAndNowView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if screen != .complete {
+                    Button(action: close) {
+                        Image(systemName: "xmark")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .buttonStyle(.automatic)
+                    .accessibilityLabel("Close activity")
+                }
+            }
+            ToolbarItem(placement: .principal) {
+                if screen == .noticing { badge }
+            }
+        }
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        }
     }
 
     private var badge: some View {
         Label("Notice", systemImage: "eye")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(yellow, in: RoundedRectangle(cornerRadius: 6))
@@ -110,7 +132,7 @@ public struct HereAndNowView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            SensesArtwork(name: "notice-senses-intro")
+            SensesArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(yellow.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -118,16 +140,16 @@ public struct HereAndNowView: View {
             HStack(spacing: 12) {
                 badge
                 Label("At your pace", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.caption)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Here & Now")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             Text("Notice five things you can see, four things you can feel, three things you can hear, two things you can smell, and one thing you can taste.")
-                .font(.system(size: 13))
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -145,19 +167,19 @@ public struct HereAndNowView: View {
                 screen = .noticing
             }
             Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.caption.weight(.semibold))
+                .frame(width: numberBadgeSize, height: numberBadgeSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13, weight: .semibold))
+                .font(.body.weight(.semibold))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -165,7 +187,7 @@ public struct HereAndNowView: View {
     private var noticing: some View {
         VStack(spacing: 20) {
             Text(current.prompt)
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 8)
@@ -182,7 +204,7 @@ public struct HereAndNowView: View {
                 .opacity(noticed == current.count ? 1 : 0.45)
 
             Button("Skip this sense", action: skip)
-                .font(.system(size: 12))
+                .font(.caption)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -215,30 +237,30 @@ public struct HereAndNowView: View {
 
                 VStack(spacing: 12) {
                     Text(noticedMessage)
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                         .contentTransition(.opacity)
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.2), value: noticed)
 
                     Image(systemName: noticed == current.count ? "checkmark" : "hand.tap")
                         .font(.system(size: 19, weight: .light))
-                        .foregroundStyle(.black.opacity(0.55))
+                        .foregroundStyle(.secondary)
                         .accessibilityHidden(true)
                 }
                 .frame(maxWidth: .infinity)
-                .frame(height: 110)
+                .frame(minHeight: counterHeight)
                 .background {
                     RoundedRectangle(cornerRadius: 24)
-                        .fill(Color(red: 1, green: 0.96, blue: 0.74))
+                        .fill(colorScheme == .dark ? Color(red: 0.25, green: 0.23, blue: 0.10) : Color(red: 1, green: 0.96, blue: 0.74))
                         .overlay {
                             RoundedRectangle(cornerRadius: 24)
-                                .stroke(.white.opacity(0.9), lineWidth: 1)
+                                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
                         }
                         .shadow(color: .black.opacity(0.07), radius: 14, y: 7)
                 }
             }
-            .frame(height: 142)
+            .frame(minHeight: counterHeight + 32)
             .padding(.top, 100)
-            .frame(maxWidth: 230)
+            .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? 340 : 230)
             .contentShape(Rectangle())
         }
         .buttonStyle(SensesCounterPressStyle(reduceMotion: reduceMotion))
@@ -277,16 +299,16 @@ public struct HereAndNowView: View {
                 }
 
             Text("You’re here.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
             Text("Feel your feet against the ground.\nStay a moment if you’d like.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 20)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.subheadline.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
@@ -300,7 +322,10 @@ public struct HereAndNowView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -394,7 +419,7 @@ private struct SensesCountingHand: View {
             } else {
                 Image(systemName: "hand.raised")
                     .font(.system(size: 120, weight: .ultraLight))
-                    .foregroundStyle(.black.opacity(0.45))
+                    .foregroundStyle(.secondary)
             }
         }
         .accessibilityHidden(true)
@@ -433,7 +458,7 @@ private struct SensesArtwork: View {
                 Image(systemName: "photo")
                     .resizable()
                     .scaledToFit()
-                    .foregroundStyle(.gray.opacity(0.45))
+                    .foregroundStyle(.secondary)
                     .padding(20)
             }
         }

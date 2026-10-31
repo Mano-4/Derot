@@ -10,10 +10,13 @@ public struct BreathingBoxView: View {
     // The team app can use these to save points and return to Home.
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    private let introImageName: String
 
-    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil) {
+    public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
+                introImageName: String = "breathe-intro") {
         self.onComplete = onComplete
         self.onClose = onClose
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, breathing, complete }
@@ -21,13 +24,25 @@ public struct BreathingBoxView: View {
     @State private var elapsed: TimeInterval = 0
     @State private var savedTime: TimeInterval = 0
     @State private var startedAt: Date? = nil
+    @State private var isOnScreen = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var instructionNumberSize: CGFloat = 28
+    @ScaledMetric(relativeTo: .body) private var pauseDiameter: CGFloat = 48
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let duration: TimeInterval = 64
     private let ticker = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
-    private let blue = Color(red: 0.67, green: 0.75, blue: 0.84)
+    private var blue: Color {
+        colorScheme == .dark
+            ? Color(red: 0.55, green: 0.68, blue: 0.84)
+            : Color(red: 0.67, green: 0.75, blue: 0.84)
+    }
+    private var surface: Color {
+        colorScheme == .dark ? Color(red: 0.07, green: 0.08, blue: 0.10) : .white
+    }
     private let yellow = Color(red: 1, green: 0.90, blue: 0)
 
     private var phaseIndex: Int { Int(elapsed / 4) % 4 }
@@ -45,30 +60,40 @@ public struct BreathingBoxView: View {
     private var secondsLeft: Int { 4 - Int(elapsed.truncatingRemainder(dividingBy: 4)) }
 
     public var body: some View {
+        NavigationStack {
+            content
+                .toolbar {
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: close) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                    }
+                }
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+        }
+    }
+
+    private var content: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen == .breathing { categoryBadge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
+                    if screen == .breathing {
+                        categoryBadge.padding(.vertical, 8)
                     }
 
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .breathing:
-                        breathing.frame(minHeight: max(0, geometry.size.height - 56))
+                        breathing.frame(minHeight: max(0, geometry.size.height - 52))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -79,16 +104,19 @@ public struct BreathingBoxView: View {
             }
             .scrollIndicators(.hidden)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
+        .onAppear { isOnScreen = true }
         .onReceive(ticker) { date in
-            guard screen == .breathing, let start = startedAt else { return }
-            elapsed = min(duration, savedTime + max(0, date.timeIntervalSince(start)))
+            guard isOnScreen, screen == .breathing, scenePhase == .active else { return }
+            if let start = startedAt {
+                elapsed = min(duration, savedTime + max(0, date.timeIntervalSince(start)))
+            }
+            // Pause can capture the deadline between ticks. Settle it even with no start date.
             if elapsed >= duration {
                 finish()
             }
@@ -96,20 +124,24 @@ public struct BreathingBoxView: View {
         .onChange(of: scenePhase) { _, phase in
             if phase != .active { pause() }
         }
-        .onDisappear { pause() }
+        .onDisappear {
+            isOnScreen = false
+            pause()
+        }
     }
 
     private var categoryBadge: some View {
         Label("Breathe", systemImage: "wind")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(blue, in: RoundedRectangle(cornerRadius: 6))
+            .foregroundStyle(.black)
     }
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            BoxRabbitArtwork(name: "breathe-intro")
+            BoxRabbitArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(blue.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -117,47 +149,56 @@ public struct BreathingBoxView: View {
             HStack(spacing: 12) {
                 categoryBadge
                 Label("About 1m", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Breathing Box")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             instruction(number: "1", text: "Follow the light around the box")
             instruction(number: "2", text: "In for 4 · hold for 4 · out for 4 · hold for 4")
             Text("Keep it comfortable. You can pause or finish anytime.")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 36)
 
             yellowButton("Start", action: start)
             Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
 
     private func instruction(number: String, text: String) -> some View {
-        HStack(spacing: 10) {
+        HStack(alignment: .top, spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
-            Text(text).font(.system(size: 13))
+                .font(.footnote)
+                .frame(width: instructionNumberSize, height: instructionNumberSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
+            Text(text)
+                .font(.body)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var breathing: some View {
         VStack(spacing: 14) {
             Text("Breathing Box")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
 
             Spacer(minLength: 28)
+
+            if dynamicTypeSize.isAccessibilitySize {
+                Text(startedAt == nil ? "A little pause" : phaseTitle)
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
 
             BoxBreathingGuide(
                 elapsed: elapsed,
@@ -173,13 +214,13 @@ public struct BreathingBoxView: View {
             .accessibilityValue("\(secondsLeft) seconds")
 
             Text(startedAt == nil ? "Resume whenever you’re ready." : phaseMessage)
-                .font(.system(size: 13))
+                .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.top, 6)
 
             Text("Round \(min(4, Int(elapsed / 16) + 1)) of 4")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.top, 2)
 
@@ -194,15 +235,15 @@ public struct BreathingBoxView: View {
                     }
                 } label: {
                     Image(systemName: startedAt == nil ? "play.fill" : "pause.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.white)
-                        .frame(width: 48, height: 48)
-                        .background(.black, in: Circle())
+                        .font(.title3)
+                        .foregroundStyle(colorScheme == .dark ? Color.black : Color.white)
+                        .frame(width: pauseDiameter, height: pauseDiameter)
+                        .background(colorScheme == .dark ? Color.white : Color.black, in: Circle())
                 }
                 .accessibilityLabel(startedAt == nil ? "Resume breathing" : "Pause breathing")
 
                 Button("Finish", action: finish)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.body.weight(.medium))
                     .frame(maxWidth: .infinity, minHeight: 44)
             }
             .padding(.bottom, 8)
@@ -220,15 +261,16 @@ public struct BreathingBoxView: View {
             }
             .frame(width: 230, height: 220)
             Text("Good job!")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             Text("Breathing Box · \(timeString(elapsed))")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(yellow, in: Capsule())
+                .foregroundStyle(.black)
 
             Spacer(minLength: 60)
 
@@ -239,13 +281,15 @@ public struct BreathingBoxView: View {
     private func yellowButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(yellow, in: RoundedRectangle(cornerRadius: 12))
+                .foregroundStyle(.black)
         }
     }
 
     private func start() {
+        isOnScreen = true
         elapsed = 0
         savedTime = 0
         startedAt = Date()
@@ -254,7 +298,7 @@ public struct BreathingBoxView: View {
 
     private func finish() {
         // Both the timer and Finish use this guard, awarding once per session.
-        guard screen == .breathing else { return }
+        guard isOnScreen, screen == .breathing else { return }
         pause()
         screen = .complete
         onComplete(10)
@@ -268,6 +312,8 @@ public struct BreathingBoxView: View {
     }
 
     private func close() {
+        // Cancel immediately; a queued timer tick must never award points after X.
+        isOnScreen = false
         pause()
         if let onClose {
             onClose()
@@ -294,6 +340,8 @@ private struct BoxBreathingGuide: View {
     let color: Color
     let reduceMotion: Bool
     let paused: Bool
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .largeTitle) private var countSize: CGFloat = 44
 
     private let side: CGFloat = 248
     private let radius: CGFloat = 28
@@ -358,19 +406,24 @@ private struct BoxBreathingGuide: View {
             )
 
             VStack(spacing: 12) {
-                Text(paused ? "A little pause" : title)
-                    .font(.custom("ComingSoon-Regular", size: 22))
-                    .foregroundStyle(.black)
-                    .multilineTextAlignment(.center)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(paused ? "A little pause" : title)
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                        .foregroundStyle(.primary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
 
                 Text(paused ? "—" : "\(secondsLeft)")
-                    .font(.system(size: 44, weight: .ultraLight, design: .rounded))
-                    .foregroundStyle(Color(red: 0.40, green: 0.53, blue: 0.67))
+                    .font(.system(size: countSize, weight: .ultraLight, design: .rounded))
+                    .foregroundStyle(.primary)
                     .monospacedDigit()
 
-                Text(paused ? "take your time" : "seconds")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
+                if !dynamicTypeSize.isAccessibilitySize {
+                    Text(paused ? "take your time" : "seconds")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             .frame(width: 200)
         }

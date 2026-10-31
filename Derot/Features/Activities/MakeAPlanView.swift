@@ -12,22 +12,34 @@ public struct SmallPlan: Equatable {
     public let source: String
 }
 
+@MainActor
 public struct MakeAPlanView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onSavePlan: ((SmallPlan) -> Void)?
+    private let introImageName: String
 
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onSavePlan: ((SmallPlan) -> Void)? = nil
+        onSavePlan: ((SmallPlan) -> Void)? = nil,
+        introImageName: String = "reflect-plan-intro"
     ) {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onSavePlan = onSavePlan
+        self.introImageName = introImageName
     }
 
-    private enum Screen { case instructions, time, plan, note, focus, complete }
+    private enum Screen: String { case instructions, time, plan, note, focus, complete }
+    private struct Draft: Codable, Equatable {
+        let stage: String
+        let time: String?
+        let route: String
+        let selectedIdea: String?
+        let ownPlan: String
+        let surpriseIdea: String?
+    }
     private enum Route: String, CaseIterable {
         case ideas = "Choose an idea"
         case own = "Write my own"
@@ -98,17 +110,36 @@ public struct MakeAPlanView: View {
     @State private var elapsed: TimeInterval = 0
     @State private var savedTime: TimeInterval = 0
     @State private var startedAt: Date?
+    @State private var isClosing = false
     @FocusState private var writing: Bool
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .footnote) private var stepMarkerSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsDiscardConfirmation = false
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "make-a-plan")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var didRestoreDraft = false
+    @State private var draftSessionEnded = false
+    @State private var resumeScreen: Screen = .time
 
     private let ticker = Timer.publish(every: 0.25, on: .main, in: .common).autoconnect()
     private var timerDuration: TimeInterval { selectedTime?.seconds ?? 60 }
     private var remaining: TimeInterval { max(0, timerDuration - elapsed) }
 
-    private let pink = Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
-    private let ink = Color(red: 0.51, green: 0.29, blue: 0.40)
+    private var pink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.50, green: 0.25, blue: 0.39)
+            : Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
+    }
+    private var ink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.96, green: 0.76, blue: 0.86)
+            : Color(red: 0.51, green: 0.29, blue: 0.40)
+    }
     private var ideas: [String] { selectedTime?.ideas ?? [] }
     private var activePlan: String {
         let value: String
@@ -120,37 +151,100 @@ public struct MakeAPlanView: View {
         return value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    @ScaledMetric(relativeTo: .body) private var editorHeight: CGFloat = 170
+    @ScaledMetric(relativeTo: .largeTitle) private var timerFontSize: CGFloat = 54
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperColor: Color {
+        colorScheme == .dark ? Color(red: 0.17, green: 0.14, blue: 0.16) : Color(red: 1, green: 0.96, blue: 0.98)
+    }
+    private var hasUnsavedWriting: Bool {
+        screen != .complete && (hasDraftContent || draftStore.hasDraft)
+    }
+    private var hasDraftContent: Bool {
+        selectedTime != nil || selectedIdea != nil || surpriseIdea != nil
+            || !ownPlan.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    private var draftSnapshot: Draft {
+        Draft(stage: screen.rawValue, time: selectedTime?.rawValue, route: route.rawValue,
+              selectedIdea: selectedIdea, ownPlan: ownPlan, surpriseIdea: surpriseIdea)
+    }
+
     public var body: some View {
+        NavigationStack {
+            activityContent
+                .navigationTitle("")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+                .toolbar {
+                    #if os(iOS)
+                    if writing {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { writing = false }
+                                .fontWeight(.semibold)
+                                .buttonStyle(.automatic)
+                        }
+                    }
+                    #endif
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: requestClose) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                        ToolbarItem(placement: .principal) {
+                            if screen != .instructions { badge }
+                        }
+                    }
+                }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction)
+        }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: draftSnapshot) { _, _ in _ = persistDraft() }
+        .confirmationDialog("Keep this for later?", isPresented: $showsDiscardConfirmation,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Keep writing", role: .cancel) { }
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+        } message: {
+            Text("Your draft stays on this device. A saved timer will wait for you to start again.")
+        }
+        .interactiveDismissDisabled(hasUnsavedWriting)
+    }
+
+    private var activityContent: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen != .instructions { badge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
-                    }
 
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .time:
-                        timePage.frame(minHeight: max(0, geometry.size.height - 56))
+                        timePage.frame(minHeight: max(0, geometry.size.height - 12))
                     case .plan:
-                        planPage.frame(minHeight: max(0, geometry.size.height - 56))
+                        planPage.frame(minHeight: max(0, geometry.size.height - 12))
                     case .note:
-                        planNote.frame(minHeight: max(0, geometry.size.height - 56))
+                        planNote.frame(minHeight: max(0, geometry.size.height - 12))
                     case .focus:
-                        timerPage.frame(minHeight: max(0, geometry.size.height - 56))
+                        timerPage.frame(minHeight: max(0, geometry.size.height - 12))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -162,27 +256,28 @@ public struct MakeAPlanView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         .onReceive(ticker) { updateTimer(at: $0) }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { updateTimer(at: Date()) }
+            else { _ = persistDraft() }
         }
         .onDisappear {
             // Keep elapsed time accurate if the view is temporarily covered.
             // An explicit close cancels the session in close().
             if screen == .focus { updateTimer(at: Date()) }
+            _ = persistDraft()
         }
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
     }
 
     private var badge: some View {
         Label("Reflect", systemImage: "heart.text.square")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(pink, in: RoundedRectangle(cornerRadius: 6))
@@ -190,7 +285,7 @@ public struct MakeAPlanView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PlanArtwork(name: "reflect-plan-intro")
+            PlanArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(pink.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -198,23 +293,39 @@ public struct MakeAPlanView: View {
             HStack(spacing: 12) {
                 badge
                 Label("At your pace", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Make a Plan")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             instruction(number: "1", text: "Choose how much time you have")
             instruction(number: "2", text: "Pick one small thing to do next")
 
             Spacer(minLength: 36)
-            pinkButton("Start") {
-                reset()
-                screen = .time
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            pinkButton(draftStore.hasDraft ? "Resume" : "Start") {
+                draftSessionEnded = false
+                isClosing = false
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    applySavedDraft(saved)
+                    screen = resumeScreen
+                    // A restored preview needs to prepare the host's journal again.
+                    if screen == .note, let time = selectedTime, !activePlan.isEmpty {
+                        onSavePlan?(SmallPlan(time: time.rawValue, action: activePlan, source: route.rawValue))
+                    }
+                } else {
+                    reset()
+                    screen = .time
+                }
+            }
+            Button("Pick something else", action: requestClose)
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
@@ -222,11 +333,11 @@ public struct MakeAPlanView: View {
     private func instruction(number: String, text: String) -> some View {
         HStack(spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.footnote)
+                .frame(width: stepMarkerSize, height: stepMarkerSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13))
+                .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -234,12 +345,12 @@ public struct MakeAPlanView: View {
     private var timePage: some View {
         VStack(spacing: 20) {
             Text("What do you have room for right now?")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.top, 18)
             Text("A little time is enough.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 24)
@@ -264,14 +375,17 @@ public struct MakeAPlanView: View {
     private var planPage: some View {
         VStack(spacing: 18) {
             Text("One small next step")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
             Text(selectedTime?.rawValue ?? "")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: 6) {
+            let routeLayout = dynamicTypeSize.isAccessibilitySize
+                ? AnyLayout(VStackLayout(spacing: 6))
+                : AnyLayout(HStackLayout(spacing: 6))
+            routeLayout {
                 ForEach(Route.allCases, id: \.self) { option in
                     Button {
                         writing = false
@@ -279,7 +393,7 @@ public struct MakeAPlanView: View {
                         if option == .surprise, surpriseIdea == nil { drawSurprise() }
                     } label: {
                         Text(option.rawValue)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.footnote.weight(.medium))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 6)
                             .frame(maxWidth: .infinity, minHeight: 48)
@@ -305,11 +419,11 @@ public struct MakeAPlanView: View {
                         .font(.system(size: 26, weight: .light))
                         .foregroundStyle(ink)
                     Text(surpriseIdea ?? "")
-                        .font(.custom("ComingSoon-Regular", size: 22))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("Try another", action: drawSurprise)
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.body.weight(.medium))
                         .frame(minHeight: 44)
                 }
                 .padding(24)
@@ -325,7 +439,7 @@ public struct MakeAPlanView: View {
                 writing = false
                 screen = .time
             }
-            .font(.system(size: 13))
+            .font(.body)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -336,11 +450,11 @@ public struct MakeAPlanView: View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Text(title)
-                    .font(.custom("ComingSoon-Regular", size: 18))
+                    .font(.custom("ComingSoon-Regular", size: 18, relativeTo: .body))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 17, weight: .light))
+                    .font(.body.weight(.light))
                     .foregroundStyle(selected ? ink : ink.opacity(0.3))
             }
             .padding(.horizontal, 16)
@@ -360,12 +474,12 @@ public struct MakeAPlanView: View {
     private var ownPlanPaper: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("I’m going to…")
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
             ZStack(alignment: .topLeading) {
                 if ownPlan.isEmpty {
                     Text("One small thing…")
-                        .font(.custom("ComingSoon-Regular", size: 22))
-                        .foregroundStyle(.secondary.opacity(0.6))
+                        .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                        .foregroundStyle(.secondary)
                         .padding(.top, 8)
                         .padding(.leading, 5)
                         .allowsHitTesting(false)
@@ -374,11 +488,11 @@ public struct MakeAPlanView: View {
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .lineSpacing(6)
                     .scrollContentBackground(.hidden)
                     .focused($writing)
-                    .frame(height: 170)
+                    .frame(height: editorHeight)
                     .accessibilityLabel("Your next small step")
             }
         }
@@ -390,7 +504,7 @@ public struct MakeAPlanView: View {
 
     private var paperBackground: some View {
         RoundedRectangle(cornerRadius: 5)
-            .fill(Color(red: 1, green: 0.96, blue: 0.98))
+            .fill(paperColor)
             .overlay {
                 PlanPaperRules().stroke(pink.opacity(0.6), lineWidth: 0.7)
             }
@@ -405,20 +519,20 @@ public struct MakeAPlanView: View {
         VStack(spacing: 22) {
             Spacer(minLength: 36)
             Text("A little plan, just for now.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
 
             VStack(alignment: .leading, spacing: 20) {
                 Image(systemName: "pin")
-                    .font(.system(size: 18, weight: .light))
+                    .font(.title3.weight(.light))
                     .foregroundStyle(ink.opacity(0.65))
                     .frame(maxWidth: .infinity)
 
                 Text(selectedTime?.leadIn ?? "")
-                    .font(.custom("ComingSoon-Regular", size: 16))
+                    .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                     .foregroundStyle(.secondary)
                 Text(activePlan)
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -428,7 +542,7 @@ public struct MakeAPlanView: View {
             .background { paperBackground }
 
             Text("Go give it a little time.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -441,12 +555,12 @@ public struct MakeAPlanView: View {
     private var timerPage: some View {
         VStack(spacing: 20) {
             Text("A little time for your plan")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
                 .padding(.top, 14)
 
             Text(activePlan)
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(22)
@@ -456,7 +570,7 @@ public struct MakeAPlanView: View {
             Spacer(minLength: 20)
 
             Text(timeString(remaining))
-                .font(.system(size: 54, weight: .ultraLight, design: .rounded))
+                .font(.system(size: timerFontSize, weight: .ultraLight, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(ink)
 
@@ -465,7 +579,7 @@ public struct MakeAPlanView: View {
                 .padding(.horizontal, 24)
 
             Text(startedAt == nil ? "Paused. Take your time." : "You can put your phone down.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -479,7 +593,7 @@ public struct MakeAPlanView: View {
                 }
             } label: {
                 Image(systemName: startedAt == nil ? "play.fill" : "pause.fill")
-                    .font(.system(size: 18))
+                    .font(.title3)
                     .foregroundStyle(.white)
                     .frame(width: 48, height: 48)
                     .background(.black, in: Circle())
@@ -499,16 +613,16 @@ public struct MakeAPlanView: View {
                     Circle().fill(pink.opacity(0.3)).frame(width: 166, height: 166)
                 }
             Text("A little time, well spent.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
             Text("You made some room for what you chose.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 16)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(pink, in: Capsule())
@@ -522,7 +636,7 @@ public struct MakeAPlanView: View {
     private func pinkButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(pink, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -543,6 +657,7 @@ public struct MakeAPlanView: View {
 
     private func startTimer() {
         guard screen == .note, selectedTime != nil else { return }
+        isClosing = false
         elapsed = 0
         savedTime = 0
         startedAt = Date()
@@ -550,8 +665,11 @@ public struct MakeAPlanView: View {
     }
 
     private func updateTimer(at date: Date) {
-        guard screen == .focus, let start = startedAt else { return }
-        elapsed = min(timerDuration, savedTime + max(0, date.timeIntervalSince(start)))
+        guard screen == .focus, !isClosing, !showsDiscardConfirmation else { return }
+        if let start = startedAt {
+            elapsed = min(timerDuration, savedTime + max(0, date.timeIntervalSince(start)))
+        }
+        // A pause may capture the deadline between ticks; it still needs completion.
         if elapsed >= timerDuration { finishSession() }
     }
 
@@ -563,8 +681,13 @@ public struct MakeAPlanView: View {
     }
 
     private func finishSession() {
-        guard screen == .focus else { return }
+        guard screen == .focus, !isClosing, !showsDiscardConfirmation else { return }
         pauseTimer()
+        guard (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+            draftExitAction = .complete
+            return
+        }
+        draftSessionEnded = true
         screen = .complete
         // The same reward for finishing early or reaching the timer's end.
         onComplete(10)
@@ -576,6 +699,7 @@ public struct MakeAPlanView: View {
     }
 
     private func reset() {
+        isClosing = false
         elapsed = 0
         savedTime = 0
         startedAt = nil
@@ -587,7 +711,73 @@ public struct MakeAPlanView: View {
         surpriseIdea = nil
     }
 
+    private func restoreDraft() {
+        guard !didRestoreDraft else { return }
+        defer { didRestoreDraft = true }
+        guard let saved = draftStore.restore() else { return }
+        applySavedDraft(saved)
+    }
+
+    private func applySavedDraft(_ saved: Draft) {
+        selectedTime = saved.time.flatMap(TimeChoice.init(rawValue:))
+        route = Route(rawValue: saved.route) ?? .ideas
+        ownPlan = saved.ownPlan
+        let availableIdeas = selectedTime?.ideas ?? []
+        selectedIdea = saved.selectedIdea.flatMap { availableIdeas.contains($0) ? $0 : nil }
+        surpriseIdea = saved.surpriseIdea.flatMap { availableIdeas.contains($0) ? $0 : nil }
+        elapsed = 0
+        savedTime = 0
+        startedAt = nil
+        // Relaunch never starts a timer or grants points in the background.
+        switch Screen(rawValue: saved.stage) {
+        case .some(.note), .some(.focus):
+            resumeScreen = selectedTime != nil && !activePlan.isEmpty ? .note : (selectedTime == nil ? .time : .plan)
+        case .some(.plan):
+            resumeScreen = selectedTime == nil ? .time : .plan
+        default:
+            resumeScreen = .time
+        }
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard didRestoreDraft, !draftSessionEnded, screen != .instructions, screen != .complete else { return true }
+        let saved = hasDraftContent ? draftStore.save(draftSnapshot) : draftStore.clearEmptyDraft()
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): finishSession()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
+    }
+
+    private func requestClose() {
+        writing = false
+        // Freeze while asking. Dismissing the dialog resumes normal completion checks.
+        if screen == .focus { pauseTimer() }
+        if hasUnsavedWriting { showsDiscardConfirmation = true }
+        else { close() }
+    }
+
     private func close() {
+        draftExitAction = nil
+        draftSessionEnded = true
+        isClosing = true
         startedAt = nil
         writing = false
         if let onClose {

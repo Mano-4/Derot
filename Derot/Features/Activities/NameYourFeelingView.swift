@@ -14,22 +14,33 @@ public struct FeelingJournalEntry: Equatable {
     public let feelingName: String?
 }
 
+@MainActor
 public struct NameYourFeelingView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onSaveEntry: ((FeelingJournalEntry) -> Void)?
+    private let introImageName: String
 
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onSaveEntry: ((FeelingJournalEntry) -> Void)? = nil
+        onSaveEntry: ((FeelingJournalEntry) -> Void)? = nil,
+        introImageName: String = "reflect-feeling-intro"
     ) {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onSaveEntry = onSaveEntry
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, journal, name, complete }
+    private struct Draft: Codable, Equatable {
+        let responses: [String]
+        let more: String
+        let moreExpanded: Bool
+        let feelingName: String
+        let isNaming: Bool
+    }
     private let starters = [
         "Right now, I feel…",
         "Something that’s been on my mind is…",
@@ -37,48 +48,126 @@ public struct NameYourFeelingView: View {
         "What I wish I could say is…"
     ]
 
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "name-your-feeling")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var resumeScreen: Screen = .journal
+    @State private var draftLoaded = false
+    @State private var sessionEnded = false
     @State private var screen: Screen = .instructions
     @State private var responses = ["", "", "", ""]
     @State private var more = ""
     @State private var moreExpanded = false
     @State private var feelingName = ""
     @FocusState private var focusedField: Int?
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .footnote) private var stepMarkerSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsDiscardConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let pink = Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
-    private let ink = Color(red: 0.51, green: 0.29, blue: 0.40)
+    private var pink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.50, green: 0.25, blue: 0.39)
+            : Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
+    }
+    private var ink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.96, green: 0.76, blue: 0.86)
+            : Color(red: 0.51, green: 0.29, blue: 0.40)
+    }
     private var cleanName: String {
         feelingName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    @ScaledMetric(relativeTo: .body) private var editorHeight: CGFloat = 190
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperColor: Color {
+        colorScheme == .dark ? Color(red: 0.17, green: 0.14, blue: 0.16) : Color(red: 1, green: 0.99, blue: 0.98)
+    }
+    private var hasUnsavedWriting: Bool {
+        screen != .complete && (responses.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            || !more.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !cleanName.isEmpty)
+    }
+
     public var body: some View {
+        NavigationStack {
+            activityContent
+                .navigationTitle("")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+                .toolbar {
+                    #if os(iOS)
+                    if focusedField != nil {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { focusedField = nil }
+                                .fontWeight(.semibold)
+                                .buttonStyle(.automatic)
+                        }
+                    }
+                    #endif
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: requestClose) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                        ToolbarItem(placement: .principal) {
+                            if screen != .instructions { badge }
+                        }
+                    }
+                }
+        }
+        .confirmationDialog("Keep this for later?", isPresented: $showsDiscardConfirmation,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+            Button("Keep writing", role: .cancel) { }
+        } message: {
+            Text("Your draft stays on this device until you finish or discard it.")
+        }
+        .interactiveDismissDisabled(hasUnsavedWriting || draftStore.hasDraft)
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction)
+        }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: draftSnapshot) { _, _ in persistDraft() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { persistDraft() }
+        }
+        .onDisappear { persistDraft() }
+    }
+
+    private var activityContent: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen != .instructions { badge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
-                    }
 
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .journal:
                         journal.padding(.top, 12)
                     case .name:
-                        naming.frame(minHeight: max(0, geometry.size.height - 56))
+                        naming.frame(minHeight: max(0, geometry.size.height - 12))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -90,18 +179,17 @@ public struct NameYourFeelingView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
     }
 
     private var badge: some View {
         Label("Reflect", systemImage: "heart.text.square")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(pink, in: RoundedRectangle(cornerRadius: 6))
@@ -109,7 +197,7 @@ public struct NameYourFeelingView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            FeelingArtwork(name: "reflect-feeling-intro")
+            FeelingArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(pink.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -117,23 +205,34 @@ public struct NameYourFeelingView: View {
             HStack(spacing: 12) {
                 badge
                 Label("At your pace", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Name Your Feeling")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
             instruction(number: "1", text: "Finish any sentence that speaks to you")
             instruction(number: "2", text: "Share more, or give the feeling a name")
 
             Spacer(minLength: 36)
-            pinkButton("Start") {
-                reset()
-                screen = .journal
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            pinkButton(draftStore.hasDraft ? "Resume" : "Start") {
+                sessionEnded = false
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    applySavedDraft(saved)
+                    screen = resumeScreen
+                } else {
+                    reset()
+                    screen = .journal
+                }
+            }
+            Button("Pick something else", action: requestClose)
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
@@ -141,11 +240,11 @@ public struct NameYourFeelingView: View {
     private func instruction(number: String, text: String) -> some View {
         HStack(spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.footnote)
+                .frame(width: stepMarkerSize, height: stepMarkerSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13))
+                .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -153,14 +252,14 @@ public struct NameYourFeelingView: View {
     private var journal: some View {
         VStack(alignment: .leading, spacing: 22) {
             Text("Start wherever you like.")
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(starters.indices, id: \.self) { index in
                     VStack(alignment: .leading, spacing: 4) {
                         Text(starters[index])
-                            .font(.custom("ComingSoon-Regular", size: 16))
-                            .foregroundStyle(ink.opacity(0.8))
+                            .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
+                            .foregroundStyle(ink)
                             .fixedSize(horizontal: false, vertical: true)
 
                         TextField("", text: $responses[index], axis: .vertical)
@@ -168,7 +267,7 @@ public struct NameYourFeelingView: View {
                             .textInputAutocapitalization(.never)
                             #endif
                             .textFieldStyle(.plain)
-                            .font(.custom("ComingSoon-Regular", size: 22))
+                            .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                             .lineLimit(1...6)
                             .focused($focusedField, equals: index)
                             .accessibilityLabel(starters[index])
@@ -191,7 +290,7 @@ public struct NameYourFeelingView: View {
             .padding(.vertical, 4)
             .background {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(Color(red: 1, green: 0.99, blue: 0.98))
+                    .fill(paperColor)
                     .overlay {
                         RoundedRectangle(cornerRadius: 8)
                             .stroke(pink.opacity(0.16), lineWidth: 1)
@@ -205,13 +304,13 @@ public struct NameYourFeelingView: View {
             } label: {
                 HStack(spacing: 8) {
                     Image(systemName: "pencil")
-                        .font(.system(size: 13, weight: .light))
+                        .font(.body.weight(.light))
                     Text("There’s more on my mind…")
                     Spacer()
                     Image(systemName: moreExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10))
+                        .font(.caption)
                 }
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .frame(minHeight: 44)
             }
@@ -234,8 +333,8 @@ public struct NameYourFeelingView: View {
         ZStack(alignment: .topLeading) {
             if more.isEmpty {
                 Text("There’s room for more here…")
-                    .font(.custom("ComingSoon-Regular", size: 22))
-                    .foregroundStyle(.secondary.opacity(0.6))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                    .foregroundStyle(.secondary)
                     .padding(.top, 8)
                     .padding(.leading, 5)
                     .allowsHitTesting(false)
@@ -245,11 +344,11 @@ public struct NameYourFeelingView: View {
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 #endif
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .lineSpacing(6)
                 .scrollContentBackground(.hidden)
                 .focused($focusedField, equals: 4)
-                .frame(height: 190)
+                .frame(height: editorHeight)
                 .accessibilityLabel("Anything else on your mind")
         }
         .padding(.leading, 26)
@@ -261,10 +360,10 @@ public struct NameYourFeelingView: View {
     private var naming: some View {
         VStack(spacing: 20) {
             Text("Give it a name")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .padding(.top, 18)
             Text("Only if you’d like.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 24)
@@ -273,7 +372,7 @@ public struct NameYourFeelingView: View {
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 #endif
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .lineLimit(2...5)
                 .focused($focusedField, equals: 5)
                 .accessibilityLabel("An optional name for this feeling")
@@ -283,7 +382,7 @@ public struct NameYourFeelingView: View {
                 .background { paper }
 
             Text("It doesn’t have to be the perfect word.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
@@ -293,7 +392,7 @@ public struct NameYourFeelingView: View {
                 focusedField = nil
                 screen = .journal
             }
-            .font(.system(size: 13))
+            .font(.body)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, minHeight: 44)
         }
@@ -301,7 +400,7 @@ public struct NameYourFeelingView: View {
 
     private var paper: some View {
         RoundedRectangle(cornerRadius: 4)
-            .fill(Color(red: 1, green: 0.99, blue: 0.98))
+            .fill(paperColor)
             .overlay {
                 FeelingPaperRules().stroke(pink.opacity(0.35), lineWidth: 0.7)
             }
@@ -328,7 +427,7 @@ public struct NameYourFeelingView: View {
 
             if !cleanName.isEmpty {
                 Text(cleanName)
-                    .font(.custom("ComingSoon-Regular", size: 22))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 20)
@@ -338,16 +437,16 @@ public struct NameYourFeelingView: View {
             }
 
             Text("There’s room for this, too.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
             Text("You don’t have to explain it perfectly\nfor it to matter.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(pink, in: Capsule())
@@ -361,7 +460,7 @@ public struct NameYourFeelingView: View {
     private func pinkButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(pink, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -369,6 +468,11 @@ public struct NameYourFeelingView: View {
 
     private func finish() {
         guard screen == .name else { return }
+        guard (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+            draftExitAction = .complete
+            return
+        }
+        sessionEnded = true
         focusedField = nil
         let cleaned = responses.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         let savedEntry = FeelingJournalEntry(
@@ -392,13 +496,74 @@ public struct NameYourFeelingView: View {
         focusedField = nil
     }
 
+    private func requestClose() {
+        focusedField = nil
+        if screen != .complete && (hasUnsavedWriting || draftStore.hasDraft) {
+            showsDiscardConfirmation = true
+        } else {
+            close()
+        }
+    }
+
+    private var draftSnapshot: Draft {
+        Draft(responses: responses, more: more, moreExpanded: moreExpanded,
+              feelingName: feelingName, isNaming: screen == .name)
+    }
+
+    private func restoreDraft() {
+        guard !draftLoaded else { return }
+        draftLoaded = true
+        guard let saved = draftStore.restore() else { return }
+        applySavedDraft(saved)
+    }
+
+    private func applySavedDraft(_ saved: Draft) {
+        responses = Array((saved.responses + Array(repeating: "", count: starters.count)).prefix(starters.count))
+        more = saved.more
+        moreExpanded = saved.moreExpanded || !saved.more.isEmpty
+        feelingName = saved.feelingName
+        resumeScreen = saved.isNaming ? .name : .journal
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard draftLoaded, !sessionEnded, screen != .complete else { return true }
+        // Merely opening the welcome page must not replace a restored draft.
+        guard screen != .instructions else { return true }
+        let saved = hasUnsavedWriting ? draftStore.save(draftSnapshot) : draftStore.clearEmptyDraft()
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): finish()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
+    }
+
     private func close() {
+        draftExitAction = nil
+        sessionEnded = true
         focusedField = nil
         if let onClose {
             onClose()
         } else {
             dismiss()
-            reset()
+            resumeScreen = screen == .name ? .name : .journal
+            if !draftStore.hasDraft { reset() }
             screen = .instructions
         }
     }

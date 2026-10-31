@@ -16,23 +16,33 @@ public struct ScrollCheckInAnswers: Equatable {
     public let nextStep: ScrollCheckInAnswer
 }
 
+@MainActor
 public struct ScrollCheckInView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
     private let onSaveAnswers: ((ScrollCheckInAnswers) -> Void)?
+    private let introImageName: String
 
     public init(
         onComplete: @escaping (Int) -> Void = { _ in },
         onClose: (() -> Void)? = nil,
-        onSaveAnswers: ((ScrollCheckInAnswers) -> Void)? = nil
+        onSaveAnswers: ((ScrollCheckInAnswers) -> Void)? = nil,
+        introImageName: String = "reflect-scroll-intro"
     ) {
         self.onComplete = onComplete
         self.onClose = onClose
         self.onSaveAnswers = onSaveAnswers
+        self.introImageName = introImageName
     }
 
     private enum Screen { case instructions, questions, complete }
-    private enum ResponseMode { case choices, journal }
+    private enum ResponseMode: String { case choices, journal }
+    private struct Draft: Codable, Equatable {
+        let step: Int
+        let selections: [[String]]
+        let notes: [String]
+        let modes: [String]
+    }
     private struct Question {
         let prompt: String
         let choices: [String]
@@ -58,40 +68,130 @@ public struct ScrollCheckInView: View {
     @State private var notes = ["", "", ""]
     @State private var responseModes: [ResponseMode] = [.choices, .choices, .choices]
     @FocusState private var writing: Bool
+    @Environment(\.activityDraftHostArchives) private var hostArchivesDraft
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
+    @ScaledMetric(relativeTo: .footnote) private var stepMarkerSize: CGFloat = 28
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var showsDiscardConfirmation = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var draftStore = ActivityDraftStore<Draft>(activityID: "scroll-check-in")
+    @State private var draftExitAction: ActivityDraftExitAction?
+    @State private var didRestoreDraft = false
+    @State private var draftSessionEnded = false
 
     // Reflect: #F4B7D7
-    private let pink = Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
-    private let ink = Color(red: 0.51, green: 0.29, blue: 0.40)
-    private let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    private var pink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.50, green: 0.25, blue: 0.39)
+            : Color(red: 244 / 255, green: 183 / 255, blue: 215 / 255)
+    }
+    private var ink: Color {
+        colorScheme == .dark
+            ? Color(red: 0.96, green: 0.76, blue: 0.86)
+            : Color(red: 0.51, green: 0.29, blue: 0.40)
+    }
+    private var columns: [GridItem] {
+        dynamicTypeSize.isAccessibilitySize
+            ? [GridItem(.flexible())]
+            : [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+    }
     private var current: Question { questions[step] }
 
+    @ScaledMetric(relativeTo: .body) private var editorHeight: CGFloat = 190
+    private var surface: Color {
+        #if os(iOS)
+        Color(uiColor: .systemBackground)
+        #elseif canImport(AppKit)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        colorScheme == .dark ? .black : .white
+        #endif
+    }
+    private var paperColor: Color {
+        colorScheme == .dark ? Color(red: 0.17, green: 0.14, blue: 0.16) : Color(red: 1, green: 0.99, blue: 0.97)
+    }
+    private var hasUnsavedWriting: Bool {
+        screen != .complete && (hasDraftContent || draftStore.hasDraft)
+    }
+    private var hasDraftContent: Bool {
+        selections.contains { !$0.isEmpty }
+            || notes.contains { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    }
+    private var draftSnapshot: Draft {
+        Draft(step: step,
+              selections: selections.map { $0.sorted() },
+              notes: notes,
+              modes: responseModes.map(\.rawValue))
+    }
+
     public var body: some View {
+        NavigationStack {
+            activityContent
+                .navigationTitle("")
+                #if os(iOS)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar(screen == .complete ? .hidden : .visible, for: .navigationBar)
+                #endif
+                .toolbar {
+                    #if os(iOS)
+                    if writing {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("Done") { writing = false }
+                                .fontWeight(.semibold)
+                                .buttonStyle(.automatic)
+                        }
+                    }
+                    #endif
+                    if screen != .complete {
+                        ToolbarItem(placement: .primaryAction) {
+                            Button(action: requestClose) {
+                                Label("Close activity", systemImage: "xmark")
+                                    .labelStyle(.iconOnly)
+                                    .frame(minWidth: 44, minHeight: 44)
+                            }
+                            .buttonStyle(.automatic)
+                        }
+                        ToolbarItem(placement: .principal) {
+                            if screen != .instructions { badge }
+                        }
+                    }
+                }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            ActivityDraftNotice(store: draftStore,
+                                retryTitle: draftExitAction?.retryTitle ?? "Try again",
+                                onRetry: retryDraftAction)
+        }
+        .onAppear(perform: restoreDraft)
+        .onChange(of: draftSnapshot) { _, _ in _ = persistDraft() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active { _ = persistDraft() }
+        }
+        .onDisappear { _ = persistDraft() }
+        .confirmationDialog("Keep this for later?", isPresented: $showsDiscardConfirmation,
+                            titleVisibility: .visible) {
+            Button("Save draft and close", action: saveDraftAndClose)
+            Button("Keep writing", role: .cancel) { }
+            Button("Discard draft", role: .destructive, action: discardDraftAndClose)
+        } message: {
+            Text("Your draft stays on this device until you finish or discard it.")
+        }
+        .interactiveDismissDisabled(hasUnsavedWriting)
+    }
+
+    private var activityContent: some View {
         GeometryReader { geometry in
             ScrollView {
                 VStack(spacing: 0) {
-                    if screen != .complete {
-                        HStack {
-                            Button(action: close) {
-                                Image(systemName: "xmark")
-                                    .font(.system(size: 15, weight: .light))
-                                    .frame(width: 44, height: 44)
-                                    .contentShape(Rectangle())
-                            }
-                            .accessibilityLabel("Close activity")
-                            Spacer()
-                            if screen == .questions { badge }
-                            Spacer()
-                            Color.clear.frame(width: 44, height: 44)
-                        }
-                    }
 
                     switch screen {
                     case .instructions:
-                        instructions.frame(minHeight: max(0, geometry.size.height - 56))
+                        instructions.frame(minHeight: max(0, geometry.size.height - 12))
                     case .questions:
-                        questionPage.frame(minHeight: max(0, geometry.size.height - 56))
+                        questionPage.frame(minHeight: max(0, geometry.size.height - 12))
                     case .complete:
                         completion.frame(minHeight: max(0, geometry.size.height - 12))
                     }
@@ -103,18 +203,17 @@ public struct ScrollCheckInView: View {
             .scrollIndicators(.hidden)
             .scrollDismissesKeyboard(.interactively)
         }
-        .background(Color.white.ignoresSafeArea())
-        .foregroundStyle(.black)
+        .background(surface.ignoresSafeArea())
+        .foregroundStyle(.primary)
         .buttonStyle(.plain)
         #if os(iOS)
-        .toolbar(.hidden, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         #endif
     }
 
     private var badge: some View {
         Label("Reflect", systemImage: "heart.text.square")
-            .font(.system(size: 10, weight: .medium))
+            .font(.caption.weight(.medium))
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
             .background(pink, in: RoundedRectangle(cornerRadius: 6))
@@ -122,7 +221,7 @@ public struct ScrollCheckInView: View {
 
     private var instructions: some View {
         VStack(alignment: .leading, spacing: 18) {
-            ScrollCheckInArtwork(name: "reflect-scroll-intro")
+            ScrollCheckInArtwork(name: introImageName)
                 .frame(maxWidth: .infinity)
                 .frame(height: 190)
                 .background(pink.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
@@ -130,25 +229,35 @@ public struct ScrollCheckInView: View {
             HStack(spacing: 12) {
                 badge
                 Label("At your pace", systemImage: "clock")
-                    .font(.system(size: 12))
+                    .font(.footnote)
                     .foregroundStyle(.secondary)
             }
             .padding(.top, 8)
 
             Text("Scroll Check-In")
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
 
             instruction(number: "1", text: "Pause and check in with yourself")
             instruction(number: "2", text: "Choose what fits, or write instead.")
 
             Spacer(minLength: 36)
-            pinkButton("Start") {
-                step = 0
-                resetAnswers()
+            if draftStore.hasDraft {
+                Text("Your draft is saved on this device.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            pinkButton(draftStore.hasDraft ? "Resume" : "Start") {
+                draftSessionEnded = false
+                if draftStore.hasDraft, let saved = draftStore.restore() {
+                    applySavedDraft(saved)
+                } else {
+                    step = 0
+                    resetAnswers()
+                }
                 screen = .questions
             }
-            Button("Pick something else", action: close)
-                .font(.system(size: 13, weight: .medium))
+            Button("Pick something else", action: requestClose)
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
     }
@@ -156,11 +265,11 @@ public struct ScrollCheckInView: View {
     private func instruction(number: String, text: String) -> some View {
         HStack(spacing: 10) {
             Text(number)
-                .font(.system(size: 12))
-                .frame(width: 28, height: 28)
-                .background(Color.black.opacity(0.07), in: Circle())
+                .font(.footnote)
+                .frame(width: stepMarkerSize, height: stepMarkerSize)
+                .background(Color.primary.opacity(0.08), in: Circle())
             Text(text)
-                .font(.system(size: 13))
+                .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -168,22 +277,22 @@ public struct ScrollCheckInView: View {
     private var questionPage: some View {
         VStack(spacing: 18) {
             Text("A moment for you")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
                 .padding(.top, 14)
 
             Text(current.prompt)
-                .font(.custom("ComingSoon-Regular", size: 34))
+                .font(.custom("ComingSoon-Regular", size: 34, relativeTo: .largeTitle))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 6)
 
             Text(responseModes[step] == .choices ? "Choose any that fit." : "Say it in your own words.")
-                .font(.system(size: 12))
+                .font(.footnote)
                 .foregroundStyle(.secondary)
 
             Text("\(step + 1) of 3")
-                .font(.system(size: 11))
+                .font(.caption)
                 .foregroundStyle(.secondary)
 
             Spacer(minLength: 12)
@@ -206,7 +315,7 @@ public struct ScrollCheckInView: View {
                     responseModes[step] == .choices ? "Write instead" : "Choose instead",
                     systemImage: responseModes[step] == .choices ? "pencil" : "square.grid.2x2"
                 )
-                .font(.custom("ComingSoon-Regular", size: 18))
+                .font(.custom("ComingSoon-Regular", size: 18, relativeTo: .body))
                 .frame(minHeight: 44)
             }
 
@@ -221,7 +330,7 @@ public struct ScrollCheckInView: View {
                     writing = false
                     step -= 1
                 }
-                    .font(.system(size: 13))
+                    .font(.body)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, minHeight: 44)
             } else {
@@ -241,13 +350,13 @@ public struct ScrollCheckInView: View {
         } label: {
             HStack(spacing: 8) {
                 Text(choice)
-                    .font(.custom("ComingSoon-Regular", size: 18))
+                    .font(.custom("ComingSoon-Regular", size: 18, relativeTo: .body))
                     .multilineTextAlignment(.leading)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 15, weight: .light))
+                    .font(.body.weight(.light))
                     .foregroundStyle(selected ? ink : ink.opacity(0.25))
             }
             .padding(.horizontal, 12)
@@ -270,8 +379,8 @@ public struct ScrollCheckInView: View {
         ZStack(alignment: .topLeading) {
             if notes[step].isEmpty {
                 Text("Whatever’s on your mind…")
-                    .font(.custom("ComingSoon-Regular", size: 22))
-                    .foregroundStyle(.secondary.opacity(0.6))
+                    .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
+                    .foregroundStyle(.secondary)
                     .padding(.top, 8)
                     .padding(.leading, 5)
                     .allowsHitTesting(false)
@@ -281,11 +390,11 @@ public struct ScrollCheckInView: View {
                 #if os(iOS)
                 .textInputAutocapitalization(.never)
                 #endif
-                .font(.custom("ComingSoon-Regular", size: 22))
+                .font(.custom("ComingSoon-Regular", size: 22, relativeTo: .title2))
                 .lineSpacing(6)
                 .scrollContentBackground(.hidden)
                 .focused($writing)
-                .frame(height: 190)
+                .frame(height: editorHeight)
                 .accessibilityLabel("Your thoughts: \(current.prompt)")
         }
         .padding(.leading, 24)
@@ -293,7 +402,7 @@ public struct ScrollCheckInView: View {
         .padding(.vertical, 14)
         .background {
             RoundedRectangle(cornerRadius: 4)
-                .fill(Color(red: 1, green: 0.99, blue: 0.97))
+                .fill(paperColor)
                 .overlay {
                     ScrollCheckInPaperRules()
                         .stroke(pink.opacity(0.45), lineWidth: 0.7)
@@ -319,17 +428,17 @@ public struct ScrollCheckInView: View {
                 }
 
             Text("A little more aware.")
-                .font(.custom("ComingSoon-Regular", size: 28))
+                .font(.custom("ComingSoon-Regular", size: 28, relativeTo: .title))
                 .multilineTextAlignment(.center)
             Text("You don’t have to change anything right now.\nNoticing is a start.")
-                .font(.custom("ComingSoon-Regular", size: 16))
+                .font(.custom("ComingSoon-Regular", size: 16, relativeTo: .body))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 12)
 
             Label("+10 pts", systemImage: "star.fill")
-                .font(.system(size: 13, weight: .medium))
+                .font(.body.weight(.medium))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(pink, in: Capsule())
@@ -343,7 +452,7 @@ public struct ScrollCheckInView: View {
     private func pinkButton(_ title: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 14, weight: .medium))
+                .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 48)
                 .background(pink, in: RoundedRectangle(cornerRadius: 12))
         }
@@ -381,6 +490,11 @@ public struct ScrollCheckInView: View {
             step += 1
         } else {
             guard questions.indices.allSatisfy({ hasAnswer($0) }) else { return }
+            guard (hostArchivesDraft ? persistDraft() : draftStore.discard()) else {
+                draftExitAction = .complete
+                return
+            }
+            draftSessionEnded = true
             screen = .complete
             onSaveAnswers?(ScrollCheckInAnswers(reason: answer(0), feeling: answer(1), nextStep: answer(2)))
             // Choice and journal responses receive the same reward.
@@ -395,7 +509,62 @@ public struct ScrollCheckInView: View {
         writing = false
     }
 
+    private func restoreDraft() {
+        guard !didRestoreDraft else { return }
+        defer { didRestoreDraft = true }
+        guard let saved = draftStore.restore() else { return }
+        applySavedDraft(saved)
+    }
+
+    private func applySavedDraft(_ saved: Draft) {
+        step = min(max(0, saved.step), questions.count - 1)
+        selections = questions.indices.map { index in
+            guard saved.selections.indices.contains(index) else { return [] }
+            return Set(saved.selections[index]).intersection(questions[index].choices)
+        }
+        notes = questions.indices.map { saved.notes.indices.contains($0) ? saved.notes[$0] : "" }
+        responseModes = questions.indices.map { index in
+            guard saved.modes.indices.contains(index) else { return .choices }
+            return ResponseMode(rawValue: saved.modes[index]) ?? .choices
+        }
+    }
+
+    @discardableResult
+    private func persistDraft() -> Bool {
+        guard didRestoreDraft, !draftSessionEnded, screen == .questions else { return true }
+        let saved = hasDraftContent ? draftStore.save(draftSnapshot) : draftStore.clearEmptyDraft()
+        if saved { draftExitAction = nil }
+        return saved
+    }
+
+    private func saveDraftAndClose() {
+        guard persistDraft() else { draftExitAction = .saveAndClose; return }
+        close()
+    }
+
+    private func retryDraftAction() {
+        switch draftExitAction {
+        case .some(.saveAndClose): saveDraftAndClose()
+        case .some(.discardAndClose): discardDraftAndClose()
+        case .some(.complete): advance()
+        case .none: draftStore.retryLastOperation()
+        }
+    }
+
+    private func discardDraftAndClose() {
+        guard draftStore.discard() else { draftExitAction = .discardAndClose; return }
+        close()
+    }
+
+    private func requestClose() {
+        writing = false
+        if hasUnsavedWriting { showsDiscardConfirmation = true }
+        else { close() }
+    }
+
     private func close() {
+        draftExitAction = nil
+        draftSessionEnded = true
         writing = false
         if let onClose {
             onClose()

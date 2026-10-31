@@ -18,7 +18,7 @@ struct ActivityScreen: View {
         // can't be forgotten here.
         switch activity {
         // Notice
-        case .findThreeThings:   FindThreeThingsView(onClose: onClose)
+        case .findThreeThings:   FindThreeThingsWithCamera(onClose: onClose)
         case .oneGoodThing:      OneGoodThingView(onClose: onClose)
         case .senses54321:       HereAndNowView(onClose: onClose)
         // Breathe
@@ -32,6 +32,8 @@ struct ActivityScreen: View {
         case .threeGoodThings:   LittleThingsKeptView(onClose: onClose)
         // Move
         case .neckReset:         NeckResetView(onClose: onClose)
+        // Think
+        case .sixWordRecall:     SixWordRecallView(onClose: onClose)
         }
     }
 }
