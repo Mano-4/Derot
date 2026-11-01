@@ -170,7 +170,7 @@ struct HomeView: View {
             NavigationLink {
                 ProfileView()
             } label: {
-                CharacterBadge(size: 56)
+                CharacterBadge(size: 70)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
