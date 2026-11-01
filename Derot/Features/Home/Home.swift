@@ -268,12 +268,12 @@ struct PickCard: View {
     let activity: DerotActivity
     var onStart: () -> Void = {}
 
+    @Environment(\.colorScheme) private var colorScheme
+
     var body: some View {
         ZStack(alignment: .bottom) {
-
-       
-
-            Color.mist
+            // Same colours as the activity's card in the library, so each category keeps its vibe.
+            activity.category.color(for: colorScheme)
 
             Image(activity.imageName)
                 .resizable()
@@ -328,13 +328,13 @@ struct PickCard: View {
                     topLeadingRadius: 16,
                     topTrailingRadius: 16
                 )
-                .fill(Color.white)
+                .fill(.ultraThinMaterial)
                 .overlay {
                     UnevenRoundedRectangle(
                         topLeadingRadius: 16,
                         topTrailingRadius: 16
                     )
-                    .fill(Color.mist.opacity(0.15))
+                    .fill(activity.category.lightColor(for: colorScheme).opacity(0.55))
                 }
             }
         }
@@ -477,7 +477,7 @@ struct MainTabView: View {
                 HomeView()
             }
                 .tabItem {
-                    Label("Dashboard", systemImage: "gauge.with.dots.needle.50percent")
+                    Label("Dashboard", systemImage: "chart.bar")
                 }
                 .tag(MainTab.home)
 

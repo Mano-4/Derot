@@ -67,6 +67,17 @@ enum DerotActivity: String, CaseIterable, Identifiable {
         }
     }
 
+    // Its group in the Activity Library. The Home card uses it for the colours.
+    var category: LibraryCategory {
+        switch self {
+        case .findThreeThings, .oneGoodThing, .senses54321:                     .notice
+        case .breathingBox, .countEightBreaths, .followTheCircle:               .breathe
+        case .nameYourFeeling, .makeAPlan, .scrollCheckIn, .threeGoodThings:    .reflect
+        case .neckReset:                                                        .move
+        case .sixWordRecall:                                                    .think
+        }
+    }
+
     // How long it takes. Same wording as the Activity Library cards.
     var duration: String {
         switch self {

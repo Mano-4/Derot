@@ -290,7 +290,8 @@ private enum LibraryFont {
 
 // MARK: - Categories
 
-private enum LibraryCategory: String, CaseIterable, Identifiable, Hashable {
+// Not private: the Home card uses the same category colours.
+enum LibraryCategory: String, CaseIterable, Identifiable, Hashable {
     case notice = "Notice"
     case breathe = "Breathe"
     case reflect = "Reflect"
