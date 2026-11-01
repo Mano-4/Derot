@@ -98,6 +98,9 @@ struct HomeView: View {
 
     private let streak = 1
 
+    // Hidden for now. Set to true to bring back the ⏳ test button for the pause.
+    private let showsTestShieldButton = false
+
     // Same activity as the last shield and notification.
     // Before the first pause there's nothing saved, so we show Breathing Box.
     private var cardActivity: DerotActivity {
@@ -131,9 +134,11 @@ struct HomeView: View {
         // Test-only button that opens a fake shield (see ShieldPreviewView).
         // It's here so it shows on Home only, not on Profile or the Activity tab.
         .overlay(alignment: .bottomTrailing) {
-            DebugShieldButton()
-                .padding(.trailing, 16)
-                .padding(.bottom, 16)
+            if showsTestShieldButton {
+                DebugShieldButton()
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+            }
         }
         #endif
     }
@@ -275,16 +280,18 @@ struct PickCard: View {
             // Same colours as the activity's card in the library, so each category keeps its vibe.
             activity.category.color(for: colorScheme)
 
+            // Bigger picture filling the top, like the library cards:
+            // its bottom (the bunny) tucks a little under the panel.
             Image(activity.imageName)
                 .resizable()
                 .scaledToFit()
-                .frame(height: 72)
+                .frame(height: 110)
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity,
                     alignment: .top
                 )
-                .padding(.top, 20)
+                .padding(.top, 6)
 
            
 
