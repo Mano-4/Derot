@@ -66,4 +66,51 @@ enum DerotActivity: String, CaseIterable, Identifiable {
         case .sixWordRecall:     "6-Word Recall"
         }
     }
+
+    // How long it takes. Same wording as the Activity Library cards.
+    var duration: String {
+        switch self {
+        case .followTheCircle:                  "1 min"
+        case .breathingBox, .neckReset:         "About 1 min"
+        case .makeAPlan:                        "1, 5 or 10 min"
+        default:                                "At your pace"
+        }
+    }
+
+    // One short line about the activity (shown on the Home card).
+    var summary: String {
+        switch self {
+        case .findThreeThings:   "Move your attention from the screen to your surroundings."
+        case .oneGoodThing:      "Savor small moments."
+        case .senses54321:       "Ground yourself when your mind is on autopilot."
+        case .breathingBox:      "Find a steady breathing rhythm."
+        case .countEightBreaths: "Bring your attention back."
+        case .followTheCircle:   "Slow your breathing with a guide."
+        case .nameYourFeeling:   "Understand how you're feeling."
+        case .makeAPlan:         "Choose what to do instead of scrolling."
+        case .scrollCheckIn:     "Notice what brought you here."
+        case .threeGoodThings:   "Notice what's going well."
+        case .neckReset:         "Ease tension from looking down."
+        case .sixWordRecall:     "Challenge your short-term memory."
+        }
+    }
+
+    // The picture on the activity's first screen. Same image names the
+    // Activity Library uses (in Assets.xcassets), so both look the same.
+    var imageName: String {
+        switch self {
+        case .findThreeThings:   "3f"
+        case .oneGoodThing:      "one good thing"
+        case .senses54321:       "54321 senses"
+        case .breathingBox:      "Breathing Box"
+        case .countEightBreaths: "Count 8 Breaths"
+        case .followTheCircle:   "Follow the Circle"
+        case .nameYourFeeling:   "Name Your Feeling"
+        case .makeAPlan:         "Make a Plan"
+        case .scrollCheckIn:     "Scroll Check-In"
+        case .threeGoodThings:   "Three Good Things"
+        case .neckReset:         "Neck Reset"
+        case .sixWordRecall:     "6-Word Recall"
+        }
+    }
 }

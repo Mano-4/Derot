@@ -90,9 +90,19 @@ struct Activity: Identifiable {
 
 struct HomeView: View {
     @EnvironmentObject private var store: CharacterStore
+    // Total points: starts at 0 and grows when an activity is finished.
+    @ObservedObject private var points = PointsStore.shared
+    // The activity the last pause picked. @AppStorage watches it,
+    // so the card changes by itself every time a new pause picks one.
+    @AppStorage(ActivityPicker.savedKey) private var savedActivityID = ""
 
     private let streak = 7
-    private let points = 240
+
+    // Same activity as the last shield and notification.
+    // Before the first pause there's nothing saved, so we show Breathing Box.
+    private var cardActivity: DerotActivity {
+        DerotActivity(rawValue: savedActivityID) ?? .breathingBox
+    }
 
     private let usage: [UsageItem] = [
         UsageItem(name: "TikTok", minutes: 38, color: .blush),
@@ -107,7 +117,10 @@ struct HomeView: View {
 
                 YourDayCard(items: usage)
 
-                PickCard()
+                PickCard(activity: cardActivity) {
+                    // Opens it the same way a tapped pause notification does (see Derot.swift).
+                    PauseRouter.shared.activityToOpen = cardActivity
+                }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
@@ -128,7 +141,7 @@ struct HomeView: View {
                         .font(.appHeadline)
                 }
 
-                Text("\(points) points")
+                Text("\(points.total) points")
                     .font(.appCaption.weight(.semibold))
                     .padding(.horizontal, 16)
                     .padding(.vertical, 6)
@@ -144,7 +157,14 @@ struct HomeView: View {
 
             Spacer()
 
-            CharacterBadge(size: 84)
+            // Tapping the bunny opens Profile (it replaced the Profile tab).
+            NavigationLink {
+                ProfileView()
+            } label: {
+                CharacterBadge(size: 84)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Profile")
         }
     }
 }
@@ -165,10 +185,6 @@ struct YourDayCard: View {
                     .font(.appHeadline)
 
                 Spacer()
-
-                Text("Today")
-                    .font(.appFootnote)
-                    .foregroundStyle(.secondary)
             }
 
             Text("\(total / 60)h \(total % 60)m")
@@ -240,6 +256,7 @@ struct UsageBar: View {
 
 
 struct PickCard: View {
+    let activity: DerotActivity
     var onStart: () -> Void = {}
 
     var body: some View {
@@ -249,9 +266,10 @@ struct PickCard: View {
 
             Color.mist
 
-            Image(systemName: "wind")
-                .font(.system(size: 48, weight: .light))
-                .foregroundStyle(.white.opacity(0.9))
+            Image(activity.imageName)
+                .resizable()
+                .scaledToFit()
+                .frame(height: 72)
                 .frame(
                     maxWidth: .infinity,
                     maxHeight: .infinity,
@@ -264,11 +282,11 @@ struct PickCard: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 8) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Box Breathing")
+                        Text(activity.title)
                             .font(.appHeadline)
                             .foregroundStyle(Color.ink)
 
-                        Label("2 min", systemImage: "clock")
+                        Label(activity.duration, systemImage: "clock")
                             .font(.appCaption)
                             .foregroundStyle(.secondary)
                     }
@@ -289,7 +307,7 @@ struct PickCard: View {
                     .buttonStyle(.plain)
                 }
 
-                Text("Slow down and focus on your breathing.")
+                Text(activity.summary)
                     .font(.appFootnote)
                     .foregroundStyle(Color.ink)
                     .lineLimit(2)
@@ -311,7 +329,8 @@ struct PickCard: View {
                 }
             }
         }
-        .frame(height: 150)
+        // Tall enough to show the activity picture above the white panel.
+        .frame(height: 200)
         .clipShape(
             RoundedRectangle(cornerRadius: 24)
         )
@@ -444,7 +463,10 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $tabs.selected) {
-            HomeView()
+            // NavigationStack lets the bunny on Home open Profile.
+            NavigationStack {
+                HomeView()
+            }
                 .tabItem {
                     Label("Home", systemImage: "house")
                 }
@@ -452,7 +474,11 @@ struct MainTabView: View {
 
             // Hessa's Activity Library (Features/Activities) has its own NavigationStack.
             // onReturnHome runs after an activity is finished and closed with "Back home".
-            ActivityLibraryView(onReturnHome: { tabs.selected = .home })
+            // onComplete adds the activity's points to the total.
+            ActivityLibraryView(
+                onComplete: { PointsStore.shared.add($0) },
+                onReturnHome: { tabs.selected = .home }
+            )
                 .tabItem {
                     Label(
                         "Activity",
@@ -460,17 +486,6 @@ struct MainTabView: View {
                     )
                 }
                 .tag(MainTab.activity)
-
-            NavigationStack {
-                ProfileView()
-            }
-            .tabItem {
-                Label(
-                    "Profile",
-                    systemImage: "person.circle"
-                )
-            }
-            .tag(MainTab.profile)
         }
         .tint(.blue)
     }

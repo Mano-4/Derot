@@ -11,7 +11,7 @@ import SwiftUI
 import Combine
 
 enum MainTab: Hashable {
-    case home, activity, profile
+    case home, activity
 }
 
 final class TabRouter: ObservableObject {

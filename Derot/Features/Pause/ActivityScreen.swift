@@ -16,26 +16,29 @@ struct ActivityScreen: View {
     let onClose: () -> Void
 
     var body: some View {
+        // The first-screen picture, same as the Activity Library shows.
+        let image = activity.imageName
+
         // Swift makes us handle every case, so a new activity
         // can't be forgotten here.
         switch activity {
         // Notice
-        case .findThreeThings:   FindThreeThingsWithCamera(onComplete: onComplete, onClose: onClose)
-        case .oneGoodThing:      OneGoodThingView(onComplete: onComplete, onClose: onClose)
-        case .senses54321:       HereAndNowView(onComplete: onComplete, onClose: onClose)
+        case .findThreeThings:   FindThreeThingsWithCamera(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .oneGoodThing:      OneGoodThingView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .senses54321:       HereAndNowView(onComplete: onComplete, onClose: onClose, introImageName: image)
         // Breathe
-        case .breathingBox:      BreathingBoxView(onComplete: onComplete, onClose: onClose)
-        case .countEightBreaths: CountEightBreathsView(onComplete: onComplete, onClose: onClose)
-        case .followTheCircle:   FollowTheCircleView(onComplete: onComplete, onClose: onClose)
+        case .breathingBox:      BreathingBoxView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .countEightBreaths: CountEightBreathsView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .followTheCircle:   FollowTheCircleView(onComplete: onComplete, onClose: onClose, introImageName: image)
         // Reflect
-        case .nameYourFeeling:   NameYourFeelingView(onComplete: onComplete, onClose: onClose)
-        case .makeAPlan:         MakeAPlanView(onComplete: onComplete, onClose: onClose)
-        case .scrollCheckIn:     ScrollCheckInView(onComplete: onComplete, onClose: onClose)
-        case .threeGoodThings:   LittleThingsKeptView(onComplete: onComplete, onClose: onClose)
+        case .nameYourFeeling:   NameYourFeelingView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .makeAPlan:         MakeAPlanView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .scrollCheckIn:     ScrollCheckInView(onComplete: onComplete, onClose: onClose, introImageName: image)
+        case .threeGoodThings:   LittleThingsKeptView(onComplete: onComplete, onClose: onClose, introImageName: image)
         // Move
-        case .neckReset:         NeckResetView(onComplete: onComplete, onClose: onClose)
+        case .neckReset:         NeckResetView(onComplete: onComplete, onClose: onClose, introImageName: image)
         // Think
-        case .sixWordRecall:     SixWordRecallView(onComplete: onComplete, onClose: onClose)
+        case .sixWordRecall:     SixWordRecallView(onComplete: onComplete, onClose: onClose, introImageName: image)
         }
     }
 }

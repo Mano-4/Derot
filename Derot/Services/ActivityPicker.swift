@@ -13,7 +13,8 @@ import Foundation
 
 enum ActivityPicker {
     // The label the activity ID is saved under.
-    private static let savedKey = "pendingActivityID"
+    // Not private: the Home card watches it with @AppStorage to update itself.
+    static let savedKey = "pendingActivityID"
 
     // Where we save: for now, the app's own small storage (UserDefaults).
     // Later, when the App Group is ready, change only this line to:

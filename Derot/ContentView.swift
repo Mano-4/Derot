@@ -10,7 +10,16 @@ struct ContentView: View {
         } else if !hasCompletedSetup {
             SetupView()
         } else {
-            Text("Home")          // replace with home view
+            MainTabView()
+                #if DEBUG
+                // Test-only button that opens a fake shield (see ShieldPreviewView).
+                // Shown only after Onboarding and Setup.
+                .overlay(alignment: .bottomTrailing) {
+                    DebugShieldButton()
+                        .padding(.trailing, 16)
+                        .padding(.bottom, 64)
+                }
+                #endif
         }
     }
 }

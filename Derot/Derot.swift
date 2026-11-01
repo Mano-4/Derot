@@ -15,25 +15,23 @@ import UserNotifications
 
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            // ContentView shows Onboarding and Setup the first time, then the tabs.
+            ContentView()
                 .environmentObject(store)
-                // Opens the activity over any tab when a pause notification is tapped.
+                // Opens the activity over any tab when a pause notification
+                // or the Home card's Start button is tapped.
                 .fullScreenCover(item: $pauseRouter.activityToOpen) { activity in
                     ActivityScreen(
                         activity: activity,
-                        // Finished: switch to Home behind the activity, so "Back home" lands there.
-                        onComplete: { _ in TabRouter.shared.selected = .home },
+                        // Finished: add its points, and switch to Home behind the activity,
+                        // so "Back home" lands there.
+                        onComplete: { points in
+                            PointsStore.shared.add(points)
+                            TabRouter.shared.selected = .home
+                        },
                         onClose: { pauseRouter.activityToOpen = nil }
                     )
                 }
-                #if DEBUG
-                // Test-only button that opens a fake shield (see ShieldPreviewView).
-                .overlay(alignment: .bottomTrailing) {
-                    DebugShieldButton()
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 64)
-                }
-                #endif
         }
 
     }
