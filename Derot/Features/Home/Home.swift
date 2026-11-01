@@ -477,7 +477,7 @@ struct MainTabView: View {
                 HomeView()
             }
                 .tabItem {
-                    Label("Home", systemImage: "house")
+                    Label("Dashboard", systemImage: "gauge.with.dots.needle.50percent")
                 }
                 .tag(MainTab.home)
 

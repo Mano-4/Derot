@@ -1152,7 +1152,9 @@ private struct LibraryCard: View {
                                 .padding(.horizontal, 8)
                                 .frame(
                                     width: geometry.size.width,
-                                    height: geometry.size.height * 0.60,
+                                    // Reaches a little under the name strip (which starts at 70%),
+                                    // so there's no empty gap above it.
+                                    height: geometry.size.height * 0.78,
                                     alignment: .bottom
                                 )
 
@@ -1165,7 +1167,7 @@ private struct LibraryCard: View {
 
                         caption
                             .frame(
-                                height: geometry.size.height * 0.48
+                                height: geometry.size.height * 0.30
                             )
                     }
                     .frame(
@@ -1202,69 +1204,23 @@ private struct LibraryCard: View {
             .accessibilityElement(children: .combine)
     }
 
-    private var compactDuration: String? {
-        switch activity.duration {
-        case .oneMinute:
-            "1m"
-
-        case .aboutOneMinute:
-            "~1m"
-
-        case .atYourPace:
-            "Any\npace"
-
-        case .planChoices:
-            "1/5/10m"
-
-        case .comingSoon:
-            nil
-        }
-    }
-
+    // Only the name on the card (the duration and description were removed
+    // to keep the cards clean). The activity's first screen still shows them.
     private var caption: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text(activity.title)
-                    .font(LibraryFont.title2)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.60)
-                    .frame(
-                        maxWidth: .infinity,
-                        alignment: .leading
-                    )
-
-                if let compactDuration {
-                    HStack(
-                        alignment: .firstTextBaseline,
-                        spacing: 2
-                    ) {
-                        Image(systemName: "clock")
-
-                        Text(compactDuration)
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(
-                        horizontal: true,
-                        vertical: true
-                    )
-                }
-            }
-
-            Text(activity.description)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.leading)
-                .lineLimit(2)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .frame(
-            maxWidth: .infinity,
-            maxHeight: .infinity,
-            alignment: .topLeading
-        )
+        Text(activity.title)
+            .font(LibraryFont.title2)
+            .foregroundStyle(.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.60)
+            .padding(.horizontal, 12)
+            // More space below than above lifts the name away from the card's round bottom corners.
+            .padding(.top, 4)
+            .padding(.bottom, 18)
+            .frame(
+                maxWidth: .infinity,
+                maxHeight: .infinity,
+                alignment: .leading
+            )
         .background {
             RoundedRectangle(
                 cornerRadius: 8,
