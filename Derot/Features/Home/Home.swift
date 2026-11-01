@@ -96,7 +96,7 @@ struct HomeView: View {
     // so the card changes by itself every time a new pause picks one.
     @AppStorage(ActivityPicker.savedKey) private var savedActivityID = ""
 
-    private let streak = 7
+    private let streak = 1
 
     // Same activity as the last shield and notification.
     // Before the first pause there's nothing saved, so we show Breathing Box.
@@ -127,6 +127,15 @@ struct HomeView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.hidden)
+        #if DEBUG
+        // Test-only button that opens a fake shield (see ShieldPreviewView).
+        // It's here so it shows on Home only, not on Profile or the Activity tab.
+        .overlay(alignment: .bottomTrailing) {
+            DebugShieldButton()
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
+        }
+        #endif
     }
 
     
@@ -481,7 +490,7 @@ struct MainTabView: View {
             )
                 .tabItem {
                     Label(
-                        "Activity",
+                        "Activities",
                         systemImage: "square.grid.2x2"
                     )
                 }

@@ -10,16 +10,8 @@ struct ContentView: View {
         } else if !hasCompletedSetup {
             SetupView()
         } else {
+            // The test ⏳ button lives on the Home screen only (see HomeView).
             MainTabView()
-                #if DEBUG
-                // Test-only button that opens a fake shield (see ShieldPreviewView).
-                // Shown only after Onboarding and Setup.
-                .overlay(alignment: .bottomTrailing) {
-                    DebugShieldButton()
-                        .padding(.trailing, 16)
-                        .padding(.bottom, 64)
-                }
-                #endif
         }
     }
 }

@@ -31,20 +31,12 @@ public struct ActivityLibraryView: View {
 
     public var body: some View {
         NavigationStack(path: $path) {
-            LibraryHomeView()
-                .navigationTitle("Activities")
-                .navigationDestination(for: LibraryRoute.self) { route in
-                    switch route {
-                    case .browser(let category):
-                        LibraryBrowserView(
-                            initial: category,
-                            onSelect: open
-                        )
-                    }
-                }
-                #if os(iOS)
-                .toolbar(.hidden, for: .navigationBar)
-                #endif
+            // The tab opens straight on the full list (the mentor asked to drop
+            // the categories page). The filter chips at the top still pick a category.
+            LibraryBrowserView(
+                initial: nil,
+                onSelect: open
+            )
         }
         .tint(.primary)
 
@@ -841,16 +833,13 @@ private struct LibraryBrowserView: View {
     }
 
     private var titleText: String {
-        selected?.rawValue ?? "Activity Library"
+        selected?.rawValue ?? "Activities"
     }
 
-    private var subtitleText: String {
-        selected?.pageSubtitle
-            ?? "pick whatever feels right for you now"
-    }
-
-    private var headerColor: Color {
-        selected?.headerColor(for: colorScheme)
+    // A soft tint of the category, the same mix the card captions use
+    // (frosted glass + the light category colour), instead of the bright colour.
+    private var headerTint: Color {
+        selected?.lightColor(for: colorScheme).opacity(0.55)
             ?? LibraryPalette.secondaryBackground
     }
 
@@ -886,17 +875,9 @@ private struct LibraryBrowserView: View {
         )
 
         #if os(iOS)
-        .navigationTitle("")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.visible, for: .navigationBar)
-        .toolbarBackground(
-            headerColor,
-            for: .navigationBar
-        )
-        .toolbarBackground(
-            .visible,
-            for: .navigationBar
-        )
+        // No navigation bar: this is the tab's first page (no back button),
+        // so the title starts at the top, lined up with Home.
+        .toolbar(.hidden, for: .navigationBar)
         #endif
 
         .animation(
@@ -937,12 +918,15 @@ private struct LibraryBrowserView: View {
                 .font(LibraryFont.largeTitle)
                 .accessibilityAddTraits(.isHeader)
 
-            Text(subtitleText)
-                .font(.body)
-                .fixedSize(
-                    horizontal: false,
-                    vertical: true
-                )
+            // A category shows its short line under the title; "All" doesn't.
+            if let selected {
+                Text(selected.pageSubtitle)
+                    .font(.body)
+                    .fixedSize(
+                        horizontal: false,
+                        vertical: true
+                    )
+            }
 
             Text(countText)
                 .font(.subheadline)
@@ -974,18 +958,23 @@ private struct LibraryBrowserView: View {
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 16)
-        .padding(.top, 12)
+        // Pushes the title down so it sits on the same line as "Hey, You!" on Home
+        // (Home has the streak and points above its title).
+        .padding(.top, 90)
         .padding(.bottom, 38)
         .frame(
             maxWidth: .infinity,
             alignment: .leading
         )
         .background(
-            headerColor
-                .clipShape(
-                    LibraryHeaderShape(curveDepth: 24)
-                )
-                .ignoresSafeArea(edges: .top)
+            ZStack {
+                Rectangle().fill(.ultraThinMaterial)
+                headerTint
+            }
+            .clipShape(
+                LibraryHeaderShape(curveDepth: 24)
+            )
+            .ignoresSafeArea(edges: .top)
         )
     }
 }
