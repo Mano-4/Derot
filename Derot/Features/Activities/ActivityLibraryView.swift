@@ -501,7 +501,7 @@ private extension LibraryActivity {
             .findThreeThings,
             "Find three things",
             .atYourPace,
-            "Move your attention from the screen to your surroundings.",
+            "Look up from the screen.",
             .notice,
             image: "3f"
         ),
@@ -517,7 +517,7 @@ private extension LibraryActivity {
             .hereAndNow,
             "Here & Now",
             .atYourPace,
-            "ground yourself when your mind is on autopilot.",
+            "Come back to right now.",
             .notice,
             image: "54321 senses"
         ),
@@ -527,7 +527,7 @@ private extension LibraryActivity {
             .followTheCircle,
             "Follow the Circle",
             .oneMinute,
-            "Slow your breathing with a guide.",
+            "Breathe with the circle.",
             .breathe,
             image: "Follow the Circle"
         ),
@@ -543,7 +543,7 @@ private extension LibraryActivity {
             .breathingBox,
             "Breathing Box",
             .aboutOneMinute,
-            "Find a steady breathing rhythm.",
+            "Find a steady rhythm.",
             .breathe,
             image: "Breathing Box"
         ),
@@ -553,7 +553,7 @@ private extension LibraryActivity {
             .scrollCheckIn,
             "Scroll Check-In",
             .atYourPace,
-            "Notice what brought you here.",
+            "Notice why you're here.",
             .reflect,
             image: "Scroll Check-In"
         ),
@@ -561,7 +561,7 @@ private extension LibraryActivity {
             .makeAPlan,
             "Make a Plan",
             .planChoices,
-            "Choose what to do instead of scrolling.",
+            "Pick something else to do.",
             .reflect,
             image: "Make a Plan"
         ),
@@ -569,7 +569,7 @@ private extension LibraryActivity {
             .nameYourFeeling,
             "Name Your Feeling",
             .atYourPace,
-            "Understand how you're feeling.",
+            "Name what you feel.",
             .reflect,
             image: "Name Your Feeling"
         ),
@@ -587,7 +587,7 @@ private extension LibraryActivity {
             .neckReset,
             "Neck Reset",
             .aboutOneMinute,
-            "Ease tension from looking down.",
+            "Ease a tired neck.",
             .move,
             image: "Neck Reset"
         ),
@@ -603,7 +603,7 @@ private extension LibraryActivity {
             .eyeBreak,
             "Eye Break",
             .comingSoon,
-            "Give your eyes a screen break.",
+            "Rest your eyes.",
             .move,
             image: "Eye Break"
         ),
@@ -611,7 +611,7 @@ private extension LibraryActivity {
             .danceBreak,
             "Dance Break",
             .comingSoon,
-            "Lift your mood through movement.",
+            "Move to lift your mood.",
             .move,
             image: "Dance Break"
         ),
@@ -619,7 +619,7 @@ private extension LibraryActivity {
             .windowWalk,
             "Window Walk",
             .comingSoon,
-            "Refresh your attention with a change of scenery.",
+            "A change of scenery.",
             .move,
             image: "Window Walk"
         ),
@@ -629,7 +629,7 @@ private extension LibraryActivity {
             .sixWordRecall,
             "6-Word Recall",
             .atYourPace,
-            "Challenge your short-term memory.",
+            "Test your memory.",
             .think,
             image: "6-Word Recall"
         ),
@@ -637,7 +637,7 @@ private extension LibraryActivity {
             .countBackBySeven,
             "Count Back by 7",
             .comingSoon,
-            "Give your focus a challenge.",
+            "Challenge your focus.",
             .think,
             image: "Count Back by 7"
         ),
@@ -645,7 +645,7 @@ private extension LibraryActivity {
             .logicRiddle,
             "Logic Riddle",
             .comingSoon,
-            "Switch to active problem-solving.",
+            "Solve a little puzzle.",
             .think,
             image: "Logic Riddle"
         )
@@ -1153,9 +1153,7 @@ private struct LibraryCard: View {
                                 .padding(.horizontal, 8)
                                 .frame(
                                     width: geometry.size.width,
-                                    // Reaches a little under the name strip (which starts at 70%),
-                                    // so there's no empty gap above it.
-                                    height: geometry.size.height * 0.78,
+                                    height: geometry.size.height * 0.60,
                                     alignment: .bottom
                                 )
 
@@ -1168,7 +1166,7 @@ private struct LibraryCard: View {
 
                         caption
                             .frame(
-                                height: geometry.size.height * 0.30
+                                height: geometry.size.height * 0.48
                             )
                     }
                     .frame(
@@ -1205,23 +1203,33 @@ private struct LibraryCard: View {
             .accessibilityElement(children: .combine)
     }
 
-    // Only the name on the card (the duration and description were removed
-    // to keep the cards clean). The activity's first screen still shows them.
+    // The name and its short description. The duration that used to sit
+    // next to the name was removed; the activity's first screen still shows it.
     private var caption: some View {
-        Text(activity.title)
-            .font(LibraryFont.title2)
-            .foregroundStyle(.primary)
-            .lineLimit(1)
-            .minimumScaleFactor(0.60)
-            .padding(.horizontal, 12)
-            // More space below than above lifts the name away from the card's round bottom corners.
-            .padding(.top, 4)
-            .padding(.bottom, 18)
-            .frame(
-                maxWidth: .infinity,
-                maxHeight: .infinity,
-                alignment: .leading
-            )
+        VStack(alignment: .leading, spacing: 4) {
+            Text(activity.title)
+                .font(LibraryFont.title2)
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.60)
+                .frame(
+                    maxWidth: .infinity,
+                    alignment: .leading
+                )
+
+            Text(activity.description)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.leading)
+                .lineLimit(2)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: .infinity,
+            alignment: .topLeading
+        )
         .background {
             RoundedRectangle(
                 cornerRadius: 8,

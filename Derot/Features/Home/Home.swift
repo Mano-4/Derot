@@ -170,7 +170,7 @@ struct HomeView: View {
             NavigationLink {
                 ProfileView()
             } label: {
-                CharacterBadge(size: 84)
+                CharacterBadge(size: 56)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profile")
@@ -290,15 +290,9 @@ struct PickCard: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 HStack(alignment: .center, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(activity.title)
-                            .font(.appHeadline)
-                            .foregroundStyle(Color.ink)
-
-                        Label(activity.duration, systemImage: "clock")
-                            .font(.appCaption)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(activity.title)
+                        .font(.appHeadline)
+                        .foregroundStyle(Color.ink)
 
                     Spacer(minLength: 4)
 
