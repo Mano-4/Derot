@@ -8,6 +8,7 @@ import AppKit
 public struct CountEightBreathsView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let introImageName: String
 
     public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
@@ -131,7 +132,10 @@ public struct CountEightBreathsView: View {
                 count = 0
                 screen = .counting
             }
-            Button("Pick something else", action: close)
+            Button("Pick something else") {
+                // Swap to another random activity when that's set up, otherwise close.
+                if let pickSomethingElse { pickSomethingElse() } else { close() }
+            }
                 .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }

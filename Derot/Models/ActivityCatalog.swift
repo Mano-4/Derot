@@ -46,6 +46,11 @@ enum DerotActivity: String, CaseIterable, Identifiable {
     // Think
     case sixWordRecall
 
+    /// A random activity that isn't this one (used by "Pick something else").
+    func randomOther() -> DerotActivity {
+        DerotActivity.allCases.filter { $0 != self }.randomElement() ?? self
+    }
+
     // Identifiable lets SwiftUI lists use the activity directly.
     var id: String { rawValue }
 

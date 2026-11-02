@@ -46,6 +46,12 @@ public struct ActivityLibraryView: View {
             onDismiss: presentationDismissed
         ) { activity in
             activityPresentation(for: activity)
+                // "Pick something else" swaps in another random ready activity.
+                .environment(\.pickSomethingElse) {
+                    presentedActivity = LibraryActivity.all
+                        .filter { $0.id.isReady && $0.id != activity.id }
+                        .randomElement()
+                }
         }
         #else
         .sheet(

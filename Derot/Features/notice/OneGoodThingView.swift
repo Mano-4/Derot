@@ -9,6 +9,7 @@ import AppKit
 public struct OneGoodThingView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let onSaveEntry: ((String) -> Void)?
     private let introImageName: String
 
@@ -180,7 +181,10 @@ public struct OneGoodThingView: View {
                 } else { entry = "" }
                 screen = .journal
             }
-            Button("Pick something else", action: requestClose)
+            Button("Pick something else") {
+                // Swap to another random activity when that's set up, otherwise close.
+                if let pickSomethingElse { pickSomethingElse() } else { requestClose() }
+            }
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }

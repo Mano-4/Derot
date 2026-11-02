@@ -83,8 +83,8 @@ struct DebugShieldButton: View {
             showShield = true
         } label: {
             Image(systemName: "hourglass")
-                .font(.title3)
-                .padding(12)
+                .font(.footnote)
+                .padding(8)
                 .background(.thinMaterial, in: Circle())
         }
         .accessibilityLabel("Test pause shield")

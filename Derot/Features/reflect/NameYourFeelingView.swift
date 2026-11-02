@@ -18,6 +18,7 @@ public struct FeelingJournalEntry: Equatable {
 public struct NameYourFeelingView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let onSaveEntry: ((FeelingJournalEntry) -> Void)?
     private let introImageName: String
 
@@ -231,7 +232,10 @@ public struct NameYourFeelingView: View {
                     screen = .journal
                 }
             }
-            Button("Pick something else", action: requestClose)
+            Button("Pick something else") {
+                // Swap to another random activity when that's set up, otherwise close.
+                if let pickSomethingElse { pickSomethingElse() } else { requestClose() }
+            }
                 .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }

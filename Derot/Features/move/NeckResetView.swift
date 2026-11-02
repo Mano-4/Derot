@@ -11,6 +11,7 @@ import AppKit
 public struct NeckResetView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let onFinish: (() -> Void)?
     private let introImageName: String
 
@@ -335,7 +336,10 @@ public struct NeckResetView: View {
                 primaryButton("I’m ready", action: beginPractice)
             case .introduction:
                 primaryButton("Continue", action: showRabbit)
-                Button("Pick something else", action: close)
+                Button("Pick something else") {
+                    // Swap to another random activity when that's set up, otherwise close.
+                    if let pickSomethingElse { pickSomethingElse() } else { close() }
+                }
                     .font(.body.weight(.medium))
                     .frame(maxWidth: .infinity, minHeight: 44)
             case .complete:

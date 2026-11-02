@@ -31,6 +31,10 @@ import UserNotifications
                         },
                         onClose: { pauseRouter.activityToOpen = nil }
                     )
+                    // "Pick something else" swaps in another random activity.
+                    .environment(\.pickSomethingElse) {
+                        pauseRouter.activityToOpen = activity.randomOther()
+                    }
                 }
         }
 

@@ -20,6 +20,7 @@ public struct ScrollCheckInAnswers: Equatable {
 public struct ScrollCheckInView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let onSaveAnswers: ((ScrollCheckInAnswers) -> Void)?
     private let introImageName: String
 
@@ -256,7 +257,10 @@ public struct ScrollCheckInView: View {
                 }
                 screen = .questions
             }
-            Button("Pick something else", action: requestClose)
+            Button("Pick something else") {
+                // Swap to another random activity when that's set up, otherwise close.
+                if let pickSomethingElse { pickSomethingElse() } else { requestClose() }
+            }
                 .font(.body.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }

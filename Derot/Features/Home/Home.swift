@@ -98,8 +98,8 @@ struct HomeView: View {
 
     private let streak = 1
 
-    // Hidden for now. Set to true to bring back the ⏳ test button for the pause.
-    private let showsTestShieldButton = false
+    // Set to false to hide the ⏳ test button for the pause.
+    private let showsTestShieldButton = true
 
     // Same activity as the last shield and notification.
     // Before the first pause there's nothing saved, so we show Breathing Box.

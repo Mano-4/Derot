@@ -9,6 +9,7 @@ import AppKit
 public struct HereAndNowView: View {
     private let onComplete: (Int) -> Void
     private let onClose: (() -> Void)?
+    @Environment(\.pickSomethingElse) private var pickSomethingElse
     private let introImageName: String
 
     public init(onComplete: @escaping (Int) -> Void = { _ in }, onClose: (() -> Void)? = nil,
@@ -166,7 +167,10 @@ public struct HereAndNowView: View {
                 noticed = 0
                 screen = .noticing
             }
-            Button("Pick something else", action: close)
+            Button("Pick something else") {
+                // Swap to another random activity when that's set up, otherwise close.
+                if let pickSomethingElse { pickSomethingElse() } else { close() }
+            }
                 .font(.subheadline.weight(.medium))
                 .frame(maxWidth: .infinity, minHeight: 44)
         }
